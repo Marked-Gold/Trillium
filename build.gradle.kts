@@ -44,7 +44,7 @@ if (useTestAdIds) {
 korge {
     id = "com.allmeatgames.triplo"
     name = "Triplo"
-    version = "1.0.4"
+    version = "1.0.5"
 
     orientation = Orientation.PORTRAIT
 
@@ -429,7 +429,7 @@ pluginManager.withPlugin("com.android.application") {
 // production) must use a strictly higher versionCode than the last, so bump this on each
 // release. KorGE sets versionName from korge.version above but leaves versionCode alone; the
 // AGP variant API sets it here, which binds late enough to be authoritative.
-val androidVersionCode = 6
+val androidVersionCode = 7
 
 pluginManager.withPlugin("com.android.application") {
     extensions.getByType(ApplicationAndroidComponentsExtension::class.java)
