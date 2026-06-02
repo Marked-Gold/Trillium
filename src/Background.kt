@@ -20,6 +20,12 @@ import kotlin.random.Random
 // sweeping the screen. The colour also weakens the further it travels, so the
 // edges glow only faintly.
 //
+// A faint wireframe traced along the triangle edges — the "veins" — carries a
+// subtle, always-on shimmer: a soft band of tier-coloured light sweeps across the
+// mesh, brightening each vein as it passes so the glow appears to pulse through the
+// field. The light's colour tracks the gradient's bottom tier, so it climbs the
+// block tiers with the player's progress alongside the facets.
+//
 // (Originally the field was wrapped in a CachedContainer to bake the static
 // triangles into one draw call; that path rendered an empty framebuffer on
 // iOS Metal — black until a pulse momentarily disabled caching — and the
@@ -48,6 +54,41 @@ private class Tri(
 private val tris = mutableListOf<Tri>()
 private var elapsed = 0.0
 
+// --- Vein shimmer ------------------------------------------------------------
+// A faint wireframe traced along the triangle edges ("veins"). A subtle band of
+// tier-coloured light travels across the field along a fixed diagonal, brightening
+// each vein as it passes — so the glow appears to pulse through the mesh. Runs
+// every idle frame (cheap: ~one exp + lerp per vein, colour-only, no re-tessellation).
+private class Vein(
+    val view: View,
+    // Normalised centre position 0..1 across the field; each sweep projects these onto its
+    // (randomised) travel direction, so the light can arrive from any angle.
+    val nx: Double,
+    val ny: Double,
+    // One of the two facets this vein borders; the vein borrows that facet's pulse arrival
+    // distance so its colour shifts in step with the wave front, not snapping when the pulse ends.
+    val triIndex: Int,
+    // Small offset folded into the sweep position so the light front reads as organic, not a ruler line.
+    val jitter: Double,
+) {
+    // Faint resting colour (near the gradient fill it sits on); recomputed when the tier shifts.
+    var restColor: RGBA = Colors.WHITE
+}
+private val veins = mutableListOf<Vein>()
+// The luminous tier-tinted colour the shimmer peaks at; tracks the gradient bottom.
+private var veinGlow: RGBA = Colors.WHITE
+
+// Each sweep sends one band of light across the mesh; when it has crossed, a fresh random direction
+// and duration are chosen for the next, so the shimmer never settles into a single predictable
+// cadence. Seeded for reproducibility — the sequence still feels varied frame to frame.
+private val shimmerRng = Random(98765L)
+private var sweepDirX = 0.80
+private var sweepDirY = 0.60
+private var sweepStart = -1000.0   // far in the past so the first frame kicks off a fresh sweep
+private var sweepTravel = 4.5      // sec the current sweep's front takes to cross the field
+private var projMin = 0.0          // min projection along the current direction (for normalising)
+private var projSpan = 1.0         // projection span along the current direction
+
 private var pulseActive = false
 private var pulseStart = 0.0
 private var pulseColor = Colors.WHITE
@@ -71,6 +112,18 @@ private const val pulseRise = 0.256    // sec a facet takes to reach full colour
 private const val pulseFall = 0.8      // sec it takes to settle back afterward
 private const val pulseStrength = 0.9  // how far toward the pulse colour a facet goes
 private const val edgeFadeMin = 0.45   // colour strength left once the wave reaches the edge
+
+// Vein shimmer tuning. Each sweep sends one band of light across the mesh in a random direction;
+// once it has crossed (plus a short gap) a new direction and duration are chosen for the next.
+private const val shimmerTravelMin = 3.5 // sec — fastest a sweep crosses the field
+private const val shimmerTravelMax = 5.5 // sec — slowest a sweep crosses the field
+private const val shimmerGap = 0.3       // sec of calm between one sweep finishing and the next
+private const val shimmerPad = 0.25      // how far past the field edges the front starts/ends (clean fade in/out)
+private const val shimmerSigma = 0.08    // band half-width (in normalised sweep units) — smaller = tighter
+private const val shimmerPeak = 0.80     // peak brightness toward veinGlow as the band passes
+private const val veinGlowWhiten = 0.45  // how far the tier colour is lifted toward white for the glow
+private const val veinRestLift = 0.10    // faint always-on wireframe strength
+private const val veinWidth = 1.60       // px stroke width of each vein
 
 // Vertical gradient the facet base colours are sampled from: a calm dusty blue
 // at the top easing through warm cream into gradBotColor at the bottom — that
@@ -208,6 +261,45 @@ fun Stage.setupBackground() {
 
     buildAdjacency()
 
+    // --- Trace the veins: one thin line per unique triangle edge ----------------
+    // Only the edges in the visible region are traced: the field covers 2x the
+    // screen to fill letterbox margins, but the shimmer is only ever seen near centre.
+    val cullMinX = -0.30 * vw; val cullMaxX = 1.30 * vw
+    val cullMinY = -0.30 * vh; val cullMaxY = 1.30 * vh
+    veins.clear()   // idempotent if setup re-runs (tests / restart)
+    val edgeLayer = container { }
+    val seenEdges = HashSet<Long>()
+    fun edgeKeyOf(a: Int, b: Int): Long {
+        val lo = minOf(a, b).toLong(); val hi = maxOf(a, b).toLong()
+        return lo * 100_000L + hi
+    }
+    // Create one line view per unique, on-screen edge, storing each vein's normalised centre so the
+    // sweep can re-project it onto a fresh random direction every pass.
+    for (ti in tris.indices) {
+        val vids = tris[ti].vertexIds
+        for (e in 0 until 3) {
+            val ia = vids[e]; val ib = vids[(e + 1) % 3]
+            if (!seenEdges.add(edgeKeyOf(ia, ib))) continue
+            val pa = vertexPoint(ia); val pb = vertexPoint(ib)
+            val mx = (pa.x + pb.x) / 2.0; val my = (pa.y + pb.y) / 2.0
+            if (mx < cullMinX || mx > cullMaxX || my < cullMinY || my > cullMaxY) continue
+            val nx = ((mx - originX) / fieldW).coerceIn(0.0, 1.0)
+            val ny = ((my - originY) / fieldH).coerceIn(0.0, 1.0)
+            // Drawn white; the colour lives in colorMul so the shimmer can re-tint it
+            // every frame without rebuilding the stroke (same trick as the facets).
+            val view =
+                edgeLayer.graphics {
+                    stroke(Colors.WHITE, lineWidth = veinWidth, lineCap = LineCap.ROUND) {
+                        moveTo(pa)
+                        lineTo(pb)
+                    }
+                }
+            val jitter = (rng.nextDouble() * 2.0 - 1.0) * 0.03
+            veins += Vein(view, nx, ny, ti, jitter)
+        }
+    }
+    rebaseVeins()
+
     // Re-tint every facet when the player switches color theme, keeping the tier progress.
     colorTheme.observe { refreshBackgroundColors() }
 
@@ -215,6 +307,7 @@ fun Stage.setupBackground() {
     // renderer redraws them as-is. Only an active pulse re-tints facets.
     addUpdater { dt ->
         elapsed += dt.seconds
+        updateShimmer()
         if (!pulseActive) return@addUpdater
 
         val pulseT = elapsed - pulseStart
@@ -226,6 +319,7 @@ fun Stage.setupBackground() {
                 gradBotColor = pulseGradTo
                 pulseChangesGrad = false
             }
+            rebaseVeins()
             for (t in tris) {
                 t.baseColor = baseColorAt(t.ny, t.jitter, gradBotColor)
                 t.view.colorMul = t.baseColor
@@ -372,6 +466,77 @@ fun refreshBackgroundColors() {
         t.baseColor = baseColorAt(t.ny, t.jitter, gradBotColor)
         t.view.colorMul = t.baseColor
     }
+    rebaseVeins()
+}
+
+// Advances the vein shimmer one frame: a soft band of tier-coloured light sweeps the
+// mesh along the fixed diagonal, brightening each vein toward veinGlow as it passes.
+//
+// While a tier-raising pulse is travelling, a vein's rest + glow colours are not the cached
+// values (those are still the old tier) — they're eased from the old tier to the new one in step
+// with the wave front, keyed by the arrival distance of the facet the vein borders. That keeps the
+// veins recolouring alongside the facets instead of snapping to the new tier when the pulse ends.
+private fun updateShimmer() {
+    if (veins.isEmpty()) return
+    // When the current sweep (plus its trailing gap) is spent, choose a new random direction + speed.
+    if (elapsed - sweepStart > sweepTravel + shimmerGap) startNewSweep()
+    // The front travels from just past one field edge to just past the other, so the band fades fully
+    // in and out instead of popping on at the boundary.
+    val front = -shimmerPad + ((elapsed - sweepStart) / sweepTravel) * (1.0 + 2.0 * shimmerPad)
+    val recolouring = pulseActive && pulseChangesGrad
+    val pulseT = elapsed - pulseStart
+    for (v in veins) {
+        val pos = (v.nx * sweepDirX + v.ny * sweepDirY - projMin) / projSpan + v.jitter
+        val d = pos - front
+        val band = exp(-(d * d) / (2.0 * shimmerSigma * shimmerSigma))
+
+        val rest: RGBA
+        val glow: RGBA
+        if (recolouring) {
+            // Ease the gradient bottom old -> new over the same window the facet uses, offset by
+            // when the wave reaches the facet this vein borders, so the recolour ripples with it.
+            val lp = pulseT - tris[v.triIndex].pulseDist / waveSpeed
+            val frac = (lp / (pulseRise + pulseFall)).coerceIn(0.0, 1.0)
+            val gradC = lerpColor(pulseGradFrom, pulseGradTo, frac)
+            glow = lerpColor(gradC, Colors.WHITE, veinGlowWhiten)
+            rest = lerpColor(baseColorAt(v.ny, 1.0, gradC), glow, veinRestLift)
+        } else {
+            rest = v.restColor
+            glow = veinGlow
+        }
+        v.view.colorMul = lerpColor(rest, glow, band * shimmerPeak)
+    }
+}
+
+// Picks a fresh random sweep direction and crossing time, and renormalises every vein's projection
+// onto that direction so the band still enters one side of the field and exits the other.
+private fun startNewSweep() {
+    val ang = shimmerRng.nextDouble() * 2.0 * PI
+    sweepDirX = cos(ang)
+    sweepDirY = sin(ang)
+    sweepTravel = shimmerTravelMin + shimmerRng.nextDouble() * (shimmerTravelMax - shimmerTravelMin)
+    sweepStart = elapsed
+    var lo = Double.MAX_VALUE
+    var hi = -Double.MAX_VALUE
+    for (v in veins) {
+        val p = v.nx * sweepDirX + v.ny * sweepDirY
+        if (p < lo) lo = p
+        if (p > hi) hi = p
+    }
+    projMin = lo
+    projSpan = (hi - lo).coerceAtLeast(1e-6)
+}
+
+// Recomputes the veins' resting colours and the glow target when the tier (and thus
+// gradBotColor) changes. The glow is the tier colour lifted toward white so the shimmer
+// reads as light catching the veins even when the tier colour itself is dark.
+private fun rebaseVeins() {
+    veinGlow = lerpColor(gradBotColor, Colors.WHITE, veinGlowWhiten)
+    for (v in veins) {
+        val fill = baseColorAt(v.ny, 1.0, gradBotColor)
+        v.restColor = lerpColor(fill, veinGlow, veinRestLift)
+        v.view.colorMul = v.restColor
+    }
 }
 
 // Restores the gradient to its opening state (gray -> green) for a new game.
@@ -386,4 +551,5 @@ fun resetBackgroundGradient() {
         t.baseColor = baseColorAt(t.ny, t.jitter, gradBotColor)
         t.view.colorMul = t.baseColor
     }
+    rebaseVeins()
 }
