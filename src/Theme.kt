@@ -99,23 +99,23 @@ private val basicFills = arrayOf(
     Colors["#9ECDD3"], // 6 SIX     blue 🟦
     Colors["#FFFFFF"], // 7 SEVEN   white ⬜
     Colors["#FF4500"], // 8 EIGHT   orange 🟧
-    Colors["#9B30FF"], // 9 NINE    purple 💜
-    Colors["#CD5C5C"], // 10 TEN    red 💝
-    Colors["#F0F0F0"], // 11 ELEVEN white 🤍
-    Colors["#FF8FAB"], // 12 TWELVE pink 🩷
-    Colors["#4A4A4A"], // 13 THIRTEEN black 🖤
-    Colors["#08A255"], // 14 FOURTEEN green 💚
-    Colors["#6495ED"], // 15 FIFTEEN blue 💙
-    Colors["#8B4513"], // 16 SIXTEEN brown 🤎
+    Colors["#FFE14D"], // 9 NINE    yellow 💛
+    Colors["#08A255"], // 10 TEN    green 💚
+    Colors["#4A4A4A"], // 11 ELEVEN black 🖤
+    Colors["#8B4513"], // 12 TWELVE brown 🤎
+    Colors["#6495ED"], // 13 THIRTEEN blue 💙
+    Colors["#FF8FAB"], // 14 FOURTEEN pink 🩷
+    Colors["#F0F0F0"], // 15 FIFTEEN white 🤍
+    Colors["#9B30FF"], // 16 SIXTEEN purple 💜
     Colors["#FFD700"], // 17 SEVENTEEN gold 🏆
     Colors["#4B0082"], // 18 EIGHTEEN purple 👑
     Colors["#7B3F05"], // 19 NINETEEN amber 💯
 )
 private val basicTexts = arrayOf(
     Colors["#FFFFFF"], Colors["#150A19"], Colors["#FFFFFF"], Colors["#FFFFFF"], Colors["#FFFBFA"],
-    Colors["#FFECCE"], Colors["#220D00"], Colors["#0A0810"], Colors["#FFFFFF"], Colors["#FFFFFF"],
-    Colors["#FFFFFF"], Colors["#010101"], Colors["#2A0A14"], Colors["#FFFFFF"], Colors["#FFFFFF"],
-    Colors["#FFFFFF"], Colors["#FFFFFF"], Colors["#3D2A00"], Colors["#FFFFFF"], Colors["#FFFFFF"],
+    Colors["#FFECCE"], Colors["#220D00"], Colors["#0A0810"], Colors["#FFFFFF"], Colors["#3D3300"],
+    Colors["#FFFFFF"], Colors["#FFFFFF"], Colors["#FFFFFF"], Colors["#FFFFFF"], Colors["#2A0A14"],
+    Colors["#010101"], Colors["#FFFFFF"], Colors["#3D2A00"], Colors["#FFFFFF"], Colors["#FFFFFF"],
 )
 
 private val pastelFills = arrayOf(
@@ -128,14 +128,14 @@ private val pastelFills = arrayOf(
     Colors["#AECBFA"], // blue 🟦
     Colors["#FFF6FB"], // white ⬜ (kept light)
     Colors["#FFC79A"], // orange 🟧
-    Colors["#D2B3F2"], // purple 💜
-    Colors["#F2B0B0"], // red 💝
-    Colors["#FBFBFD"], // white 🤍 (kept light)
-    Colors["#FFC2D4"], // pink 🩷
-    Colors["#7A7580"], // black 🖤 (kept dark)
+    Colors["#F0DD7A"], // yellow 💛
     Colors["#A6E6C3"], // green 💚
-    Colors["#B3CBF5"], // blue 💙
+    Colors["#7A7580"], // black 🖤 (kept dark)
     Colors["#CBA079"], // brown 🤎
+    Colors["#B3CBF5"], // blue 💙
+    Colors["#FFC2D4"], // pink 🩷
+    Colors["#FBFBFD"], // white 🤍 (kept light)
+    Colors["#D2B3F2"], // purple 💜
     Colors["#FBE9A0"], // gold 🏆
     Colors["#B79CD9"], // purple 👑
     Colors["#D9A36B"], // amber 💯
@@ -151,14 +151,14 @@ private val neonFills = arrayOf(
     Colors["#1FB6FF"], // blue 🟦
     Colors["#FFFFFF"], // white ⬜ (kept light)
     Colors["#FF7A00"], // orange 🟧
-    Colors["#C13CFF"], // purple 💜
-    Colors["#FF4D6D"], // red 💝
-    Colors["#FFFFFF"], // white 🤍 (kept light)
-    Colors["#FF5FA2"], // pink 🩷
-    Colors["#26262E"], // black 🖤 (kept dark)
+    Colors["#EAFF00"], // yellow 💛
     Colors["#1BFF9E"], // green 💚
-    Colors["#2D9BFF"], // blue 💙
+    Colors["#26262E"], // black 🖤 (kept dark)
     Colors["#C56A1E"], // brown 🤎
+    Colors["#2D9BFF"], // blue 💙
+    Colors["#FF5FA2"], // pink 🩷
+    Colors["#FFFFFF"], // white 🤍 (kept light)
+    Colors["#C13CFF"], // purple 💜
     Colors["#FFE000"], // gold 🏆
     Colors["#8A2BE2"], // purple 👑
     Colors["#FF8C1A"], // amber 💯
@@ -174,14 +174,14 @@ private val darkFills = arrayOf(
     Colors["#2C5C8A"], // blue 🟦
     Colors["#E8E6EC"], // white ⬜ (kept light)
     Colors["#9E3B12"], // orange 🟧
-    Colors["#6A1FB0"], // purple 💜
-    Colors["#913A3A"], // red 💝
-    Colors["#D8D8DE"], // white 🤍 (kept light)
-    Colors["#B5566E"], // pink 🩷
-    Colors["#2A2A30"], // black 🖤 (kept dark)
+    Colors["#B8A82C"], // yellow 💛
     Colors["#1B6E45"], // green 💚
-    Colors["#34568F"], // blue 💙
+    Colors["#2A2A30"], // black 🖤 (kept dark)
     Colors["#5A3110"], // brown 🤎
+    Colors["#34568F"], // blue 💙
+    Colors["#B5566E"], // pink 🩷
+    Colors["#D8D8DE"], // white 🤍 (kept light)
+    Colors["#6A1FB0"], // purple 💜
     Colors["#C7A700"], // gold 🏆
     Colors["#3A0A66"], // purple 👑
     Colors["#5E2F04"], // amber 💯
