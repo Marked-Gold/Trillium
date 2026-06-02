@@ -140,21 +140,23 @@ private fun Stage.showCurrentTutorialStep() {
                 mergeTargets(),
                 ZERO,
                 "MERGE BLOCKS",
-                "Drag across the 3 flashing blocks",
+                "Drag across all 3 flashing blocks",
             )
         TStep.LINE ->
             showMergeStep(
                 lineTargets(),
                 ONE,
                 "LINE MERGE",
-                "Certain shapes result in greater blocks",
+                "Drag across all 5 flashing blocks",
+                "A longer line climbs to a higher tier",
             )
         TStep.SQUARE ->
             showMergeStep(
                 squareTargets(),
                 ZERO,
                 "SQUARE MERGE",
-                "The selection order changes the resulting squares",
+                "Drag across all 4 flashing blocks",
+                "A filled square forges several blocks",
             )
         TStep.BOMB -> {
             tutorialAllowedPositions = emptySet()
@@ -170,7 +172,7 @@ private fun Stage.showCurrentTutorialStep() {
             tutorialAllowedPositions = emptySet()
             showActionStep(
                 "ROCKETS",
-                "Tap the rocket, then tap two blocks",
+                "Tap the rocket, then two blocks",
                 "Swaps two blocks. Earned from chains of 8 or more.",
                 rocketContainer,
                 highlightActive = { !rocketSelection.selected },
@@ -194,10 +196,10 @@ private fun Stage.showPageStep(page: InfoPage, footer: String, showSkip: Boolean
                 xy(-views.virtualWidth * 2.5, -views.virtualHeight * 2.5)
             }
 
-            val cardWidth = 312.0
+            val cardWidth = 316.0
             val content = buildInfoCard(cardWidth, page)
             val pad = 20.0
-            val footerH = 42.0
+            val footerH = 48.0
             val card =
                 container {
                     roundRect(
@@ -206,7 +208,7 @@ private fun Stage.showPageStep(page: InfoPage, footer: String, showSkip: Boolean
                         fill = cardBg,
                     )
                     content.addTo(this).xy(pad, pad)
-                    text(footer, 16.0, footerColor, font) {
+                    text(footer, 18.0, footerColor, font) {
                         setTextBounds(Rectangle(0.0, 0.0, cardWidth + pad * 2, footerH))
                         alignment = TextAlignment.MIDDLE_CENTER
                         y = content.height + pad
@@ -237,13 +239,23 @@ private fun Stage.showMergeStep(
     number: Rank,
     title: String,
     line: String,
+    note: String? = null,
 ) {
     // Re-script the target cells so the step always has the exact layout it teaches.
     scriptTutorialCells(targets, number)
     tutorialAllowedPositions = targets.toSet()
     tutorialContainer =
         container {
-            coachPanel(title, line, null, leftIndent.toDouble(), topIndent + 8.0, fieldWidth.toDouble())
+            val width = fieldWidth.toDouble()
+            // Hover the banner just above the flashing blocks with a downward arrow pointing right
+            // at them (the same pointer the bomb/rocket banners use), so it is obvious which blocks
+            // to drag across. The banner always sits above the targets, never over them.
+            val minX = targets.minOf { getXFromPosition(it) }
+            val maxX = targets.maxOf { getXFromPosition(it) }
+            val pointerX = (minX + maxX) / 2.0 + cellSize / 2.0
+            val topY = targets.minOf { getYFromPosition(it) }.toDouble()
+            val panelY = (topY - coachHeight(line, note, width) - 16.0).coerceAtLeast(topIndent + 4.0)
+            coachPanel(title, line, note, leftIndent.toDouble(), panelY, width, pointerX = pointerX)
             targets.forEach { position ->
                 pulseHighlight(
                     getXFromPosition(position).toDouble(),
@@ -323,15 +335,15 @@ private fun Stage.showGameOnStep() {
 
 // ---- Shared UI building blocks -------------------------------------------------------------
 
-private fun coachLineLines(line: String, width: Double) = wrap(line, maxOf(12, (width / 8.6).toInt()))
+private fun coachLineLines(line: String, width: Double) = wrap(line, maxOf(12, (width / 10.0).toInt()))
 
-private fun coachNoteLines(note: String, width: Double) = wrap(note, maxOf(12, (width / 6.8).toInt()))
+private fun coachNoteLines(note: String, width: Double) = wrap(note, maxOf(12, (width / 7.5).toInt()))
 
 /** The height a coach banner needs for the given instruction [line] and optional [note]. */
 private fun coachHeight(line: String, note: String?, width: Double): Double {
-    var h = 12.0 + 24.0 + coachLineLines(line, width).size * 22.0
-    if (note != null) h += 4.0 + coachNoteLines(note, width).size * 17.0
-    return h + 12.0
+    var h = 14.0 + 28.0 + coachLineLines(line, width).size * 26.0
+    if (note != null) h += 6.0 + coachNoteLines(note, width).size * 19.0
+    return h + 14.0
 }
 
 /**
@@ -357,32 +369,32 @@ private fun Container.coachPanel(
             val tx = px - x
             graphics {
                 fill(coachBg) {
-                    moveTo(tx - 12.0, h - 1.0)
-                    lineTo(tx + 12.0, h - 1.0)
-                    lineTo(tx, h + 14.0)
+                    moveTo(tx - 13.0, h - 1.0)
+                    lineTo(tx + 13.0, h - 1.0)
+                    lineTo(tx, h + 16.0)
                     close()
                 }
             }
         }
-        text(title, 18.0, footerColor, font) {
-            setTextBounds(Rectangle(0.0, 0.0, width, 24.0))
+        text(title, 21.0, footerColor, font) {
+            setTextBounds(Rectangle(0.0, 0.0, width, 28.0))
             alignment = TextAlignment.MIDDLE_CENTER
-            this.y = 12.0
+            this.y = 14.0
         }
         lineLines.forEachIndexed { i, ln ->
-            text(ln, 16.0, cardBody, font) {
-                setTextBounds(Rectangle(0.0, 0.0, width, 22.0))
+            text(ln, 19.0, cardBody, font) {
+                setTextBounds(Rectangle(0.0, 0.0, width, 26.0))
                 alignment = TextAlignment.MIDDLE_CENTER
-                this.y = 38.0 + i * 22.0
+                this.y = 46.0 + i * 26.0
             }
         }
         if (note != null) {
-            val noteY = 38.0 + lineLines.size * 22.0 + 4.0
+            val noteY = 46.0 + lineLines.size * 26.0 + 6.0
             coachNoteLines(note, width).forEachIndexed { i, ln ->
-                text(ln, 12.5, cardMuted, font) {
-                    setTextBounds(Rectangle(0.0, 0.0, width, 17.0))
+                text(ln, 14.0, cardMuted, font) {
+                    setTextBounds(Rectangle(0.0, 0.0, width, 19.0))
                     alignment = TextAlignment.MIDDLE_CENTER
-                    this.y = noteY + i * 17.0
+                    this.y = noteY + i * 19.0
                 }
             }
         }
@@ -413,7 +425,8 @@ private fun Container.pulseHighlight(
                 return@addUpdater
             }
             t += dt.seconds
-            wash.alpha = 0.07 + 0.49 * (0.5 + 0.5 * sin(t * 4.2))
+            // Quick, pronounced pulse so it is obvious these are the blocks to select.
+            wash.alpha = 0.10 + 0.58 * (0.5 + 0.5 * sin(t * 8.0))
         }
     }
 }
@@ -524,7 +537,7 @@ private class InfoPage(
 )
 
 private fun welcomePage() =
-    InfoPage("WELCOME TO TRIPLO", listOf("Merge blocks to climb powers of 3"))
+    InfoPage("WELCOME TO TRIPLO", listOf("Merge matching blocks to build bigger numbers"))
 
 private fun undoPage() =
     InfoPage(
@@ -615,12 +628,12 @@ private fun buildInfoCard(width: Double, page: InfoPage): Container =
     Container().apply {
         var y = 0.0
         for (titleLine in wrap(page.title, 22)) {
-            text(titleLine, 26.0, cardAccent, font) {
-                setTextBounds(Rectangle(0.0, 0.0, width, 34.0))
+            text(titleLine, 28.0, cardAccent, font) {
+                setTextBounds(Rectangle(0.0, 0.0, width, 36.0))
                 alignment = TextAlignment.MIDDLE_CENTER
                 this.y = y
             }
-            y += 37.0
+            y += 39.0
         }
         if (y > 0.0) y += 12.0
         page.diagram?.let { draw ->
@@ -630,15 +643,15 @@ private fun buildInfoCard(width: Double, page: InfoPage): Container =
             y += dia.height + 18.0
         }
         // Wrap the body so each line fills the available width at the body font size.
-        val bodyChars = maxOf(16, (width / 9.3).toInt())
+        val bodyChars = maxOf(16, (width / 10.0).toInt())
         for (paragraph in page.body) {
             for (line in wrap(paragraph, bodyChars)) {
-                text(line, 18.5, cardBody, font) {
-                    setTextBounds(Rectangle(0.0, 0.0, width, 25.0))
+                text(line, 20.0, cardBody, font) {
+                    setTextBounds(Rectangle(0.0, 0.0, width, 27.0))
                     alignment = TextAlignment.MIDDLE_CENTER
                     this.y = y
                 }
-                y += 25.0
+                y += 27.0
             }
             y += 11.0
         }
