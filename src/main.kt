@@ -334,10 +334,39 @@ suspend fun main() =
                 text = it.toString()
             }
         }
+        // Flashes in place of the score number while the current layout is being copied,
+        // mirroring the BEST box's COPIED confirmation.
+        val scoreCopiedText = text("COPIED", cellSize * 0.6, contrastInkOn(pauseScreenBlockCopiedColor), font) {
+            setTextBounds(Rectangle(0.0, 0.0, bgScore.width, cellSize * 0.5))
+            alignment = TextAlignment.MIDDLE_CENTER
+            alignTopToTopOf(bgScore, 5.0 + (cellSize * 0.5) + 5.0)
+            centerXOn(bgScore)
+            visible = false
+        }
         colorTheme.observe {
             bgScore.fill = restartAndScoreColor
             scoreLabel.color = scoreTextColor
             scoreValue.color = scoreTextColor
+            scoreCopiedText.color = contrastInkOn(pauseScreenBlockCopiedColor)
+        }
+        // Tapping SCORE copies the current board layout + score to the clipboard and briefly
+        // flashes "COPIED" over the score — the same content the SHARE button produces.
+        var scoreCopiedShowing = false
+        bgScore.onClick {
+            if (scoreCopiedShowing) return@onClick
+            scoreCopiedShowing = true
+            Napier.d("SCORE box tapped - copying current layout")
+            stage?.views?.copyTextToClipboard(buildShareMessage(blocksMap, score.value, gravityModeEnabled.value))
+            scoreValue.visible = false
+            scoreCopiedText.visible = true
+            bgScore.fill = pauseScreenBlockCopiedColor
+            stage?.views?.launchImmediately {
+                delay(1200L)
+                scoreCopiedText.visible = false
+                scoreValue.visible = true
+                bgScore.fill = restartAndScoreColor
+                scoreCopiedShowing = false
+            }
         }
 
         val bgBest =
@@ -362,7 +391,8 @@ suspend fun main() =
             gravityModeEnabled.observe { refresh() }
         }
         // Flashes in place of the score number while the saved layout is being copied.
-        val bestCopiedText = text("COPIED", cellSize * 0.6, scoreTextColor, font) {
+        // Inked for the copied-state fill it flashes over (bright in NEON/PASTEL), not the score color.
+        val bestCopiedText = text("COPIED", cellSize * 0.6, contrastInkOn(pauseScreenBlockCopiedColor), font) {
             setTextBounds(Rectangle(0.0, 0.0, bgBest.width, cellSize * 0.5))
             alignment = TextAlignment.MIDDLE_CENTER
             alignTopToTopOf(bgBest, 5.0 + (cellSize * 0.5) + 5.0)
@@ -405,7 +435,7 @@ suspend fun main() =
             bgBest.fill = restartAndScoreColor
             bestLabel.color = scoreTextColor
             bestValueText.color = scoreTextColor
-            bestCopiedText.color = scoreTextColor
+            bestCopiedText.color = contrastInkOn(pauseScreenBlockCopiedColor)
             // The gravity-mode glyph bakes its color, so rebuild it in the new ink.
             gravityModeIcon.removeFromParent()
             gravityModeIcon = gravityIcon(cellSize * 0.42, scoreTextColor)
@@ -789,24 +819,32 @@ fun Container.showRestart(isGameOver: Boolean = false, onRestart: () -> Unit) =
                     centerXOn(restartBackground)
                     alignTopToTopOf(restartBackground, buttonTopOffset(2 - rowOffset))
                 }
+                // While the COPIED confirmation flashes, the label wears a high-contrast ink for the
+                // bright copied fill; suppress the hover/press recolors so they don't stomp it.
+                var sharing = false
                 val label = text("SHARE", labelSize, pauseScreenTextColor, font) {
-                    onOver { color = pauseScreenTextHoverColor }
-                    onOut { color = pauseScreenTextColor }
-                    onDown { color = pauseScreenTextDownColor }
-                    onUp { color = pauseScreenTextDownColor }
+                    onOver { if (!sharing) color = pauseScreenTextHoverColor }
+                    onOut { if (!sharing) color = pauseScreenTextColor }
+                    onDown { if (!sharing) color = pauseScreenTextDownColor }
+                    onUp { if (!sharing) color = pauseScreenTextDownColor }
                 }
                 val icon = shareIcon(fieldWidth * 0.13, pauseScreenTextColor)
                 layoutButtonContent(label, icon, textContainer)
                 // Copy the grid, then flash "COPIED" and a brighter button so the tap registers visibly.
                 fun shareAndConfirm() {
+                    if (sharing) return
+                    sharing = true
                     Napier.d("Share Button - YES Clicked")
                     copyBlocksToClipboard()
                     label.text = "COPIED"
+                    label.color = contrastInkOn(pauseScreenBlockCopiedColor)
                     textContainer.fill = pauseScreenBlockCopiedColor
                     stage?.views?.launchImmediately {
                         delay(1200L)
                         label.text = "SHARE"
+                        label.color = pauseScreenTextColor
                         textContainer.fill = pauseScreenBlockColor
+                        sharing = false
                     }
                 }
                 onUp { shareAndConfirm() }
@@ -1271,7 +1309,16 @@ fun Container.showThemes(onClose: () -> Unit, onThemeChosen: () -> Unit) =
                     val totalW = samples.size * mini + (samples.size - 1) * miniGap
                     var mx = tileW / 2.0 - totalW / 2.0
                     samples.forEach { r ->
-                        roundRect(Size(mini, mini), RectCorners(3), fill = p.rankFill[r.ordinal]) {
+                        // Thin border in this theme's ink (the same colour as the name below) so each
+                        // swatch reads as a distinct square — needed most for the pale PASTEL squares
+                        // that otherwise blend into the light tile.
+                        roundRect(
+                            Size(mini, mini),
+                            RectCorners(3),
+                            fill = p.rankFill[r.ordinal],
+                            stroke = p.pauseScreenTextColor,
+                            strokeThickness = 2.0,
+                        ) {
                             x = mx
                             alignTopToTopOf(tile, tileH * 0.20)
                         }
