@@ -162,7 +162,7 @@ fun Stage.checkGameOver() {
 }
 
 // How long a tile takes to settle / drop into place in gravity mode.
-val gravityFallTime = 0.3.seconds
+val gravityFallTime = 0.5.seconds
 
 /**
  * Gravity-mode refill. Instead of filling every empty cell in place, the surviving blocks in each
@@ -172,11 +172,12 @@ val gravityFallTime = 0.3.seconds
  * views are animated from where they currently sit to that layout. Must be called inside an
  * `animate { }` (Animator) scope; [stage] supplies the container the new block views attach to.
  *
- * The new blocks start above the board, so they are dropped inside a [clipContainer] sized to the
- * playfield: it hides the part of their fall that is above the top edge, making them appear to
- * slide out from under it. Once they land they are reparented onto the stage (joining the survivors
- * as ordinary board blocks) and the clip layer is discarded. The survivors fall on the stage as
- * usual — they never leave the board, so they need no clipping.
+ * The new blocks start above the board (off the top of the grid). They are added to the stage
+ * hidden, and the boot-time reveal updater (see [gravityPendingReveal]) flips each one visible the
+ * instant its top edge drops past the playfield's top edge — so nothing is ever seen in the gap
+ * above the grid, yet the drop onto the board is still visible. (A clip layer would be the natural
+ * tool here, but KorGE's scissor clipping does not hold up under this scaled / letterboxed JS
+ * setup, so visibility is used instead.) The survivors fall on the stage as usual.
  */
 fun Animator.animateGravityRefill(stage: Stage) {
     val newMap = mutableMapOf<Position, Block>()
@@ -184,10 +185,6 @@ fun Animator.animateGravityRefill(stage: Stage) {
     val falls = mutableListOf<Pair<Block, Position>>()
     // Freshly spawned blocks that drop in from above, paired with their landing cell.
     val drops = mutableListOf<Pair<Block, Position>>()
-
-    // Clip the falling new blocks to the playfield so the part of their fall above the top edge is
-    // hidden. Positioned at the board origin, so children use board-local coordinates.
-    val dropLayer = stage.clipContainer(Size(fieldWidth, fieldHeight)) { xy(leftIndent, topIndent) }
 
     for (x in 0 until gridColumns) {
         // Surviving blocks in this column, top -> bottom, tagged with their current row.
@@ -201,14 +198,16 @@ fun Animator.animateGravityRefill(stage: Stage) {
             if (newY != oldY) falls.add(block to target)
         }
         // Fill the freed top cells with new blocks falling in from above the board. Starting each
-        // one `emptyCount` rows above its target makes the whole new column enter together,
-        // sliding down past the top edge. Coordinates are board-local (relative to the clip layer).
+        // one `emptyCount` rows above its target makes the whole new column enter together, sliding
+        // down past the top edge. Each starts hidden and is revealed as it crosses onto the board.
         for (row in 0 until emptyCount) {
             val newBlock = Block(nextBlockId++, getRandomRank())
             val target = Position(x, row)
             newMap[target] = newBlock
-            dropLayer.addBlock(newBlock)
-            newBlock.position(getXFromPosition(target) - leftIndent, getYFromIndex(row - emptyCount) - topIndent)
+            stage.addBlock(newBlock)
+            newBlock.position(getXFromPosition(target), getYFromIndex(row - emptyCount))
+            newBlock.visible = false
+            gravityPendingReveal.add(newBlock)
             drops.add(newBlock to target)
         }
     }
@@ -219,20 +218,17 @@ fun Animator.animateGravityRefill(stage: Stage) {
         falls.forEach { (block, target) ->
             moveTo(block, getXFromPosition(target), getYFromPosition(target), gravityFallTime, Easing.EASE_IN)
         }
-        // New blocks fall toward their board-local landing cell inside the clip layer.
         drops.forEach { (block, target) ->
-            moveTo(block, getXFromPosition(target) - leftIndent, getYFromPosition(target) - topIndent, gravityFallTime, Easing.EASE_IN)
+            moveTo(block, getXFromPosition(target), getYFromPosition(target), gravityFallTime, Easing.EASE_IN)
         }
     }
     block {
-        // The new blocks have landed inside the playfield; reparent them onto the stage at their
-        // absolute board positions (the clip layer sits at the board origin, so this is the same
-        // screen spot — no visual jump) and drop the now-empty clip layer.
-        drops.forEach { (block, target) ->
-            stage.addBlock(block)
-            block.position(getXFromPosition(target), getYFromPosition(target))
+        // By now every dropped block has crossed onto the board and been revealed by the updater;
+        // force it and drop it from the pending list as a safety net against rounding.
+        drops.forEach { (block, _) ->
+            block.visible = true
+            gravityPendingReveal.remove(block)
         }
-        dropLayer.removeFromParent()
     }
 }
 

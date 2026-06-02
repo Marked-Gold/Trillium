@@ -21,6 +21,8 @@ class GravityModeTest : ViewsForTesting() {
         cellSize = 32
         font = resourcesVfs["clear_sans.fnt"].readBitmapFont()
         blocksMap = mutableMapOf()
+        // Shared global; clear it so reveal state never leaks between tests.
+        gravityPendingReveal.clear()
     }
 
     @Test
@@ -72,7 +74,27 @@ class GravityModeTest : ViewsForTesting() {
         }
 
     @Test
-    fun newBlocksReparentOntoTheStageOnceTheyLand() =
+    fun gravityRevealHidesBlocksAboveTheBoardAndShowsThemOnceTheyLand() =
+        viewsTest {
+            prepareBoard()
+            topIndent = 100 // the playfield's top edge for this test
+
+            // A block still above the board, and one that has dropped onto it — both start hidden
+            // and queued, as animateGravityRefill leaves them.
+            val above = Block(7000, Rank.ZERO).apply { y = 40.0; visible = false }
+            val landed = Block(7001, Rank.ZERO).apply { y = 150.0; visible = false }
+            gravityPendingReveal.add(above)
+            gravityPendingReveal.add(landed)
+
+            revealLandedGravityBlocks()
+
+            assertFalse(above.visible, "a block still above the board must stay hidden")
+            assertTrue(landed.visible, "a block that has dropped onto the board must be revealed")
+            assertEquals(listOf(above), gravityPendingReveal, "only landed blocks leave the reveal queue")
+        }
+
+    @Test
+    fun newBlocksEndUpVisibleOnTheStageWithTheRevealQueueDrained() =
         viewsTest {
             prepareBoard()
             // Fill every column except column 0, so the fall produces a full column of fresh blocks.
@@ -81,24 +103,19 @@ class GravityModeTest : ViewsForTesting() {
                 for (y in 0 until gridRows) blocksMap[Position(x, y)] = Block(x * 10 + y, Rank.ZERO)
             }
             nextBlockId = 7000
-            val clipLayersBefore = views.stage.children.count { it is korlibs.korge.view.ClipContainer }
 
             animate { animateGravityRefill(views.stage) }
-            // Advance ~0.6s of frames (the fall is 0.3s) so the drop completes and the landed
-            // blocks reparent off the clip layer.
+            // Advance a full second of frames (comfortably past gravityFallTime) so the drop completes.
             val clock = solidRect(1, 1)
-            tween(clock::x[2], time = 0.6.seconds)
+            tween(clock::x[2], time = 1.0.seconds)
 
             val fresh = blocksMap.values.filter { it.id >= 7000 }
             assertEquals(gridRows, fresh.size, "the empty column should produce a full column of fresh blocks")
             fresh.forEach {
-                assertSame(views.stage, it.parent, "a landed new block must be reparented onto the stage, not orphaned in the clip layer")
+                assertSame(views.stage, it.parent, "a new block must end up on the stage")
+                assertTrue(it.visible, "no new block may be left hidden once it has dropped onto the board")
             }
-            assertEquals(
-                clipLayersBefore,
-                views.stage.children.count { it is korlibs.korge.view.ClipContainer },
-                "the temporary drop clip layer must be removed once the blocks land",
-            )
+            assertTrue(gravityPendingReveal.isEmpty(), "the pending-reveal queue must drain once blocks land")
         }
 
     @Test

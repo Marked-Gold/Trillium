@@ -57,6 +57,12 @@ var font: BitmapFont by Delegates.notNull()
 
 var blocksMap: MutableMap<Position, Block> = mutableMapOf()
 
+// New blocks dropping in under gravity mode, held hidden until they fall onto the board. A
+// boot-time updater flips each one visible the instant its top edge crosses the playfield's top
+// edge, so they are never seen in the gap above the grid. (A clip layer is the natural tool, but
+// KorGE's scissor clipping is unreliable in this scaled/letterboxed setup.)
+val gravityPendingReveal = mutableListOf<Block>()
+
 var hoveredPositions: MutableList<Position> = mutableListOf()
 var hoveredBombPositions: MutableList<Position> = mutableListOf()
 
@@ -560,6 +566,12 @@ suspend fun main() =
                 checkIdleHint()
             }
         }
+
+        // Gravity-mode reveal: while new blocks are dropping in (hidden), flip each visible the
+        // moment its top edge reaches the playfield's top, so it is only ever seen once it is on
+        // the board. Idle (the common case) when nothing is dropping, so it costs a single
+        // emptiness check per frame.
+        addUpdater { revealLandedGravityBlocks() }
 
         // On the very first launch, walk the player through a scripted merge, bomb and rocket,
         // then mark the tutorial seen and deal a fresh random board.
@@ -1311,6 +1323,19 @@ fun Stage.refreshBoardColors() {
     blocksMap.toList().forEach { (position, block) -> updateBlock(block, position) }
 }
 
+/**
+ * Reveals any gravity-mode blocks that have dropped onto the board — i.e. whose top edge has
+ * crossed the playfield's top — and drops them from the pending queue. Driven once per frame by a
+ * boot-time updater; a no-op (one emptiness check) whenever nothing is dropping.
+ */
+fun revealLandedGravityBlocks() {
+    if (gravityPendingReveal.isEmpty()) return
+    val boardTop = topIndent.toDouble()
+    gravityPendingReveal.removeAll { block ->
+        (block.y >= boardTop).also { onBoard -> if (onBoard) block.visible = true }
+    }
+}
+
 fun Container.restart() {
     Napier.d("Running Restart Function...")
     resetIdleTimer()
@@ -1321,6 +1346,8 @@ fun Container.restart() {
     rocketsLoadedCount.update(startingRocketCount)
     blocksMap.values.forEach { it.removeFromParent() }
     blocksMap.clear()
+    // Drop any gravity blocks still mid-drop so they are not left hidden/pending on the new board.
+    gravityPendingReveal.clear()
     blocksMap = initializeRandomBlocksMap()
     drawAllBlocks()
     // New game: the background gradient drops back to its gray -> green opening.
