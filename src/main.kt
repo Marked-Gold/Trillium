@@ -1012,7 +1012,16 @@ fun Container.showSettings(
             val gap = fieldWidth * 0.05
             icon.x = within.x + pad
             icon.centerYOn(within)
-            label.x = within.x + pad + icon.width + gap
+            val labelLeft = within.x + pad + icon.width + gap
+            // Shrink a label that would overrun the pill (the "GAME MODE: …" rows are the widest),
+            // keeping a symmetric right margin. Scaling around the top-left anchor keeps labelLeft fixed.
+            val available = within.width - (labelLeft - within.x) - pad
+            if (label.width > available) {
+                val k = available / label.width
+                label.scaleX = k
+                label.scaleY = k
+            }
+            label.x = labelLeft
             label.centerYOn(within)
         }
 
@@ -1049,48 +1058,37 @@ fun Container.showSettings(
             }
         }
 
-        // GRAVITY — flips gravity mode. Each mode keeps its own high score, so switching starts a
-        // fresh game; when the current run is worth keeping (> threshold) we confirm first.
+        // GAME MODE — opens a sub-page to pick between Classic and Gravity. Like THEMES, hides this
+        // popup while the picker is open and restores it on close.
         container {
             val textContainer = roundRect(Size(buttonWidth, buttonHeight), RectCorners(25), fill = pauseScreenBlockColor) {
                 centerXOn(settingsBackground)
                 alignTopToTopOf(settingsBackground, buttonTopOffset(1))
             }
-            val label = text("GRAVITY ${if (gravityModeEnabled.value) "ON" else "OFF"}", labelSize, pauseScreenTextColor, font) {
+            val label = text("GAME MODE", labelSize, pauseScreenTextColor, font) {
                 onOver { color = pauseScreenTextHoverColor }
                 onOut { color = pauseScreenTextColor }
                 onDown { color = pauseScreenTextDownColor }
                 onUp { color = pauseScreenTextDownColor }
             }
-            val icon = gravityIcon(fieldWidth * 0.13, pauseScreenTextColor)
+            val icon = gamepadIcon(fieldWidth * 0.13, pauseScreenTextColor)
             layoutButtonContent(label, icon, textContainer)
-            // Dim the row when the mode is off, matching the haptics/sfx "off" treatment.
-            if (!gravityModeEnabled.value) alpha = 0.4
-
-            fun applyGravity(turningOn: Boolean) {
-                val s = stage ?: return
-                gravityModeEnabled.update(turningOn)
-                s.views.storage.set(gravityModeEnabledKey, turningOn.toString())
-                Napier.d("Gravity mode toggled ${if (turningOn) "on" else "off"}; dealing a fresh board")
-                // Tear down the settings + pause/game-over menus and deal a fresh board in the new mode.
-                showingSettings = false
-                showingRestart = false
-                settingsPopup.removeFromParent()
-                pauseMenu?.removeFromParent()
-                s.unselectAllPowerUps()
-                s.restart()
-            }
-
             onClick {
-                val s = stage ?: return@onClick
-                val turningOn = !gravityModeEnabled.value
-                // Warn before discarding a run with real progress — but not on the game-over
-                // screen, where there is nothing left to lose.
-                if (!fromGameOver && score.value > gravityConfirmScoreThreshold) {
-                    s.showGravityConfirm(turningOn) { applyGravity(turningOn) }
-                } else {
-                    applyGravity(turningOn)
-                }
+                Napier.d("Game Mode Button Clicked (from settings)")
+                settingsPopup.visible = false
+                stage?.showGameModes(
+                    fromGameOver = fromGameOver,
+                    // Tapping outside an option returns to this settings page.
+                    onClose = { settingsPopup.visible = true },
+                    // Switching mode closes the whole menu stack so the freshly dealt board is revealed
+                    // (otherwise the rebuilt board renders on top of the still-open menu).
+                    onModeChosen = {
+                        showingSettings = false
+                        showingRestart = false
+                        settingsPopup.removeFromParent()
+                        pauseMenu?.removeFromParent()
+                    },
+                )
             }
         }
 
@@ -1107,7 +1105,7 @@ fun Container.showSettings(
                 onDown { color = pauseScreenTextDownColor }
                 onUp { color = pauseScreenTextDownColor }
             }
-            val icon = paletteIcon(fieldWidth * 0.13, pauseScreenTextColor)
+            val icon = colorWheelIcon(fieldWidth * 0.13)
             layoutButtonContent(label, icon, textContainer)
             onClick {
                 Napier.d("Themes Button Clicked (from settings)")
@@ -1312,6 +1310,129 @@ fun Container.showThemes(onClose: () -> Unit, onThemeChosen: () -> Unit) =
             }
         }
         renderTiles()
+    }
+
+/**
+ * Game-mode picker, reached from the GAME MODE row in [showSettings]. Mirrors the theme picker's
+ * full-board backdrop (taps outside the card return to settings beneath) and shows the two modes as
+ * stacked option pills, the active one ringed. Each mode keeps its own high score, so switching
+ * deals a fresh board; picking the already-active mode is a no-op that just returns to settings, and
+ * switching away from a run worth keeping (> threshold, off the game-over screen) confirms first.
+ */
+fun Stage.showGameModes(
+    fromGameOver: Boolean,
+    onClose: () -> Unit,
+    onModeChosen: () -> Unit,
+) =
+    container {
+        val stageRef = this@showGameModes
+        // Held so the nested option tiles (whose own `container {}` shadows this receiver) can still
+        // address the popup itself.
+        val modesPopup = this
+        Napier.d("Showing Game Modes Container...")
+
+        fun dismiss() {
+            modesPopup.removeFromParent()
+            onClose()
+        }
+
+        // Full-screen tap catcher behind the card: a tap outside the card returns to settings.
+        solidRect(4000.0, 4000.0, RGBA(0, 0, 0, 0)) {
+            centerXOn(gameField)
+            centerYOn(gameField)
+            onClick { dismiss() }
+        }
+
+        val card =
+            roundRect(Size(fieldWidth, fieldHeight), RectCorners(5), fill = grayedGameFieldColor) {
+                centerXOn(gameField)
+                centerYOn(gameField)
+                onClick { dismiss() }
+            }
+
+        text("GAME MODE", 24.0, pauseScreenTextColor, font) {
+            centerXOn(card)
+            alignTopToTopOf(card, fieldHeight * 0.07)
+        }
+
+        fun applyMode(enableGravity: Boolean) {
+            gravityModeEnabled.update(enableGravity)
+            stageRef.views.storage.set(gravityModeEnabledKey, enableGravity.toString())
+            Napier.d("Game mode set to ${if (enableGravity) "gravity" else "classic"}; dealing a fresh board")
+            // Tear down this picker + the settings/pause menus beneath, then deal a fresh board.
+            modesPopup.removeFromParent()
+            onModeChosen()
+            stageRef.unselectAllPowerUps()
+            stageRef.restart()
+        }
+
+        fun choose(enableGravity: Boolean) {
+            // Picking the current mode changes nothing — just drop back to settings.
+            if (enableGravity == gravityModeEnabled.value) {
+                dismiss()
+                return
+            }
+            // Warn before discarding a run with real progress — but not on the game-over screen,
+            // where there is nothing left to lose.
+            if (!fromGameOver && score.value > gravityConfirmScoreThreshold) {
+                stageRef.showGravityConfirm(enableGravity) { applyMode(enableGravity) }
+            } else {
+                applyMode(enableGravity)
+            }
+        }
+
+        // CLASSIC first, then GRAVITY: title + one-line description, with the active mode ringed.
+        data class ModeOption(val title: String, val description: String, val gravity: Boolean)
+        val options =
+            listOf(
+                ModeOption("CLASSIC", "Place blocks freely on the board", gravity = false),
+                ModeOption("GRAVITY", "Blocks fall to fill the board", gravity = true),
+            )
+
+        val pillW = fieldWidth * 0.74
+        val pillH = fieldHeight * 0.20
+        val pillGap = fieldHeight * 0.05
+        val firstTop = fieldHeight * 0.30
+        val pillLeft = (fieldWidth - pillW) / 2.0
+
+        options.forEachIndexed { idx, option ->
+            val offY = firstTop + idx * (pillH + pillGap)
+            container {
+                val backing = roundRect(Size(pillW, pillH), RectCorners(18), fill = pauseScreenBlockColor) {
+                    alignLeftToLeftOf(card, pillLeft)
+                    alignTopToTopOf(card, offY)
+                }
+                text(option.title, 26.0, pauseScreenTextColor, font) {
+                    setTextBounds(Rectangle(0.0, 0.0, pillW, 32.0))
+                    alignment = TextAlignment.MIDDLE_CENTER
+                    centerXOn(backing)
+                    alignTopToTopOf(backing, pillH * 0.16)
+                }
+                text(option.description, 15.0, pauseScreenTextColor, font) {
+                    setTextBounds(Rectangle(0.0, 0.0, pillW, 22.0))
+                    alignment = TextAlignment.MIDDLE_CENTER
+                    centerXOn(backing)
+                    alignTopToTopOf(backing, pillH * 0.48)
+                }
+                // Selection ring (theme picker's accent) marks the active mode.
+                if (option.gravity == gravityModeEnabled.value) {
+                    roundRect(
+                        Size(pillW, pillH),
+                        RectCorners(18),
+                        fill = Colors.TRANSPARENT,
+                        stroke = loadedRocketCartridgeColor,
+                        strokeThickness = 4.0,
+                    ) {
+                        alignLeftToLeftOf(card, pillLeft)
+                        alignTopToTopOf(card, offY)
+                    }
+                }
+                onClick {
+                    Haptics.tap()
+                    choose(option.gravity)
+                }
+            }
+        }
     }
 
 /**

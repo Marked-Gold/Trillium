@@ -277,19 +277,74 @@ fun Container.gravityIcon(
         }
     }
 
-/** Themes icon — three overlapping rings, the classic "colors / palette" glyph. Labels the THEMES
- * row in the settings sub-menu (the color-theme picker). */
-fun Container.paletteIcon(
+// Fixed rainbow used by [colorWheelIcon]; eight evenly-spaced hues read as "colours / themes".
+private val colorWheelHues =
+    listOf(
+        RGBA(231, 76, 60),   // red
+        RGBA(230, 145, 56),  // orange
+        RGBA(241, 196, 15),  // yellow
+        RGBA(46, 204, 113),  // green
+        RGBA(26, 188, 156),  // teal
+        RGBA(52, 152, 219),  // blue
+        RGBA(142, 68, 173),  // purple
+        RGBA(214, 69, 145),  // magenta
+    )
+
+/** Themes icon — a colour wheel: a ring split into eight rainbow segments around a hollow centre.
+ * Unlike the other (single-ink) glyphs this is intentionally multi-colour, since the colour itself
+ * is the point. Labels the THEMES row in the settings sub-menu (the color-theme picker). */
+fun Container.colorWheelIcon(
+    s: Double,
+): Container =
+    iconBox(s) {
+        graphics {
+            val c = Point(s * 0.5, s * 0.5)
+            // Eight thick stroked arcs: lineWidth *is* the ring thickness, so the band weight is
+            // explicit (the ring spans rMid ± thickness/2 → here s*0.18 .. s*0.46).
+            val rMid = s * 0.32
+            val thickness = s * 0.28
+            val seg = 360.0 / colorWheelHues.size
+            val gapDeg = 4.0 // thin background seams between segments, like the reference wheel
+            colorWheelHues.forEachIndexed { i, hue ->
+                val a0 = (i * seg + gapDeg / 2.0).degrees
+                val a1 = ((i + 1) * seg - gapDeg / 2.0).degrees
+                stroke(hue, lineWidth = thickness, lineCap = LineCap.BUTT) {
+                    arc(c, rMid, a0, a1, false)
+                }
+            }
+        }
+    }
+
+/** Game-mode icon — a gamepad: a rounded capsule body with a d-pad on the left and two face
+ * buttons on the right. Labels the GAME MODE row in the settings sub-menu (the mode picker). */
+fun Container.gamepadIcon(
     s: Double,
     color: RGBA = iconInk,
 ): Container =
     iconBox(s) {
         graphics {
-            stroke(color, lineWidth = s * 0.075, lineCap = LineCap.ROUND) {
-                val r = s * 0.20
-                circle(Point(s * 0.40, s * 0.40), r)
-                circle(Point(s * 0.60, s * 0.40), r)
-                circle(Point(s * 0.50, s * 0.61), r)
+            val bodyW = s * 0.76
+            val bodyH = s * 0.44
+            val bx = (s - bodyW) / 2.0
+            val by = (s - bodyH) / 2.0 + s * 0.03
+            val r = bodyH / 2.0
+            // Body outline.
+            stroke(color, lineWidth = s * 0.07, lineCap = LineCap.ROUND) {
+                roundRect(bx, by, bodyW, bodyH, r, r)
+            }
+            val cy = by + bodyH / 2.0
+            // D-pad (a plus) on the left.
+            val px = s * 0.34
+            val arm = s * 0.095
+            val t = s * 0.07
+            fill(color) {
+                roundRect(px - arm, cy - t / 2.0, arm * 2, t, t * 0.4, t * 0.4)
+                roundRect(px - t / 2.0, cy - arm, t, arm * 2, t * 0.4, t * 0.4)
+            }
+            // Two face buttons on the right.
+            fill(color) {
+                circle(Point(s * 0.61, cy - s * 0.06), s * 0.05)
+                circle(Point(s * 0.71, cy + s * 0.06), s * 0.05)
             }
         }
     }
