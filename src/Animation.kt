@@ -68,6 +68,12 @@ fun Stage.animateMerge(mergeMap: MutableMap<Position, Pair<Rank, List<Position>>
                 highestMergeTier?.let { Sfx.merge(it) }
             }
             sequenceLazy {
+                if (gravityModeEnabled.value) {
+                    // Gravity mode: survivors fall and new pieces drop in from the top, rather than
+                    // every vacated cell being filled in place.
+                    animateGravityRefill(this@animateMerge)
+                    return@sequenceLazy
+                }
                 val newPositionBlocks = generateBlocksForEmptyPositions()
                 Napier.d(
                     "Generating new blocks ${newPositionBlocks.map {
@@ -136,6 +142,9 @@ fun Stage.animateMerge(mergeMap: MutableMap<Position, Pair<Rank, List<Position>>
 fun Stage.checkGameOver() {
     // The scripted tutorial drains power-ups on purpose; never end the game during it.
     if (tutorialActive) return
+    // The board is fully settled by the time we get here (after every merge/bomb/rocket), so
+    // this is the moment to snapshot a record-setting layout for the shareable BEST box.
+    maybeCaptureBestShare()
     if (!hasAvailableMoves() && bombsLoadedCount.value == 0 && rocketsLoadedCount.value == 0) {
         Napier.d("Game Over!")
         launchImmediately {
@@ -152,23 +161,78 @@ fun Stage.checkGameOver() {
     }
 }
 
-// Not used any more but left it in case of future changes
-fun Animator.animateGravity() {
+// How long a tile takes to settle / drop into place in gravity mode.
+val gravityFallTime = 0.3.seconds
+
+/**
+ * Gravity-mode refill. Instead of filling every empty cell in place, the surviving blocks in each
+ * column settle against the floor (largest y), preserving their relative order, and fresh blocks
+ * drop in from above the top edge to fill the vacated cells. [blocksMap] is rebuilt into its final
+ * layout up front — so game-over checks and input see the settled board immediately — then the
+ * views are animated from where they currently sit to that layout. Must be called inside an
+ * `animate { }` (Animator) scope; [stage] supplies the container the new block views attach to.
+ *
+ * The new blocks start above the board, so they are dropped inside a [clipContainer] sized to the
+ * playfield: it hides the part of their fall that is above the top edge, making them appear to
+ * slide out from under it. Once they land they are reparented onto the stage (joining the survivors
+ * as ordinary board blocks) and the clip layer is discarded. The survivors fall on the stage as
+ * usual — they never leave the board, so they need no clipping.
+ */
+fun Animator.animateGravityRefill(stage: Stage) {
+    val newMap = mutableMapOf<Position, Block>()
+    // Surviving blocks that slide down, paired with the cell they settle into.
+    val falls = mutableListOf<Pair<Block, Position>>()
+    // Freshly spawned blocks that drop in from above, paired with their landing cell.
+    val drops = mutableListOf<Pair<Block, Position>>()
+
+    // Clip the falling new blocks to the playfield so the part of their fall above the top edge is
+    // hidden. Positioned at the board origin, so children use board-local coordinates.
+    val dropLayer = stage.clipContainer(Size(fieldWidth, fieldHeight)) { xy(leftIndent, topIndent) }
+
+    for (x in 0 until gridColumns) {
+        // Surviving blocks in this column, top -> bottom, tagged with their current row.
+        val column = (0 until gridRows).mapNotNull { y -> blocksMap[Position(x, y)]?.let { y to it } }
+        val emptyCount = gridRows - column.size
+        // Drop the survivors onto the floor, keeping their relative order.
+        column.forEachIndexed { i, (oldY, block) ->
+            val newY = emptyCount + i
+            val target = Position(x, newY)
+            newMap[target] = block
+            if (newY != oldY) falls.add(block to target)
+        }
+        // Fill the freed top cells with new blocks falling in from above the board. Starting each
+        // one `emptyCount` rows above its target makes the whole new column enter together,
+        // sliding down past the top edge. Coordinates are board-local (relative to the clip layer).
+        for (row in 0 until emptyCount) {
+            val newBlock = Block(nextBlockId++, getRandomRank())
+            val target = Position(x, row)
+            newMap[target] = newBlock
+            dropLayer.addBlock(newBlock)
+            newBlock.position(getXFromPosition(target) - leftIndent, getYFromIndex(row - emptyCount) - topIndent)
+            drops.add(newBlock to target)
+        }
+    }
+
+    blocksMap = newMap
+
     parallel {
-        blocksMap =
-            blocksMap.mapKeys { (position, block) ->
-                blocksMap.filter { (comparisonPosition, _) ->
-                    position.x == comparisonPosition.x && position.y < comparisonPosition.y
-                }
-                    .size.let {
-                        val newPosition = Position(position.x, gridRows - 1 - it)
-                        if (newPosition != position)
-                            {
-                                moveTo(blocksMap[position]!!, getXFromPosition(newPosition), getYFromPosition(newPosition), 0.5.seconds, Easing.EASE_SINE)
-                            }
-                        newPosition
-                    }
-            }.toMutableMap()
+        falls.forEach { (block, target) ->
+            moveTo(block, getXFromPosition(target), getYFromPosition(target), gravityFallTime, Easing.EASE_IN)
+        }
+        // New blocks fall toward their board-local landing cell inside the clip layer.
+        drops.forEach { (block, target) ->
+            moveTo(block, getXFromPosition(target) - leftIndent, getYFromPosition(target) - topIndent, gravityFallTime, Easing.EASE_IN)
+        }
+    }
+    block {
+        // The new blocks have landed inside the playfield; reparent them onto the stage at their
+        // absolute board positions (the clip layer sits at the board origin, so this is the same
+        // screen spot — no visual jump) and drop the now-empty clip layer.
+        drops.forEach { (block, target) ->
+            stage.addBlock(block)
+            block.position(getXFromPosition(target), getYFromPosition(target))
+        }
+        dropLayer.removeFromParent()
     }
 }
 
@@ -279,6 +343,12 @@ fun View.animateGameOverIntro(
 
 fun Stage.generateNewBlocks() =
     launchImmediately {
+        if (gravityModeEnabled.value) {
+            // Gravity mode: collapse the columns and drop fresh pieces in from the top instead of
+            // filling the cleared cells where they sit.
+            animate { animateGravityRefill(this@generateNewBlocks) }
+            return@launchImmediately
+        }
         val newPositionBlocks = generateBlocksForEmptyPositions()
         Napier.d("Generating new blocks ${newPositionBlocks.map { (position, block) -> "${block.number.value} at (${position.log()}\n" }}")
         blocksMap.putAll(newPositionBlocks)

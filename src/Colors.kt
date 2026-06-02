@@ -1,45 +1,37 @@
 import korlibs.image.color.*
 
-val patternBorderOptions: Array<RGBA> = arrayOf(
-    Colors["#F26419"],
-    Colors["#86BBD8"],
-    Colors["#33658A"],
-    Colors["#B20D30"],
-    Colors["#454372"],
-    Colors["#C69DD2"],
-    Colors["#F79F79"],
-    Colors["#FDE12D"],
-)
+// Every color below now sources from the active theme's Palette (see Theme.kt). The names are
+// unchanged so all call sites keep working; switching theme swaps what these return.
 
-val gameFieldColor = Colors["#e0d8e822"]
+val patternBorderOptions: Array<RGBA> get() = currentPalette().patternBorderOptions
 
-val grayedGameFieldColor = Colors["#aaa6a4cc"]
+val gameFieldColor: RGBA get() = currentPalette().gameFieldColor
 
-val cellColor = Colors["#cec0b250"]
+val grayedGameFieldColor: RGBA get() = currentPalette().grayedGameFieldColor
 
-//val restartAndScoreColor = Colors["#639cd9"]
+val cellColor: RGBA get() = currentPalette().cellColor
+
 // Faded to match the power-up tray backdrops so the board shows through.
-val restartAndScoreColor = Colors["#a3d6b840"]
+val restartAndScoreColor: RGBA get() = currentPalette().restartAndScoreColor
 
-val scoreTextColor = Colors["#12291b"]
+val scoreTextColor: RGBA get() = currentPalette().scoreTextColor
 
 // Power-up tray backdrops: a soft, faded tint matching each power-up.
-val bombContainerColor = Colors["#4f8fd140"]
-val rocketContainerColor = Colors["#f8785540"]
+val bombContainerColor: RGBA get() = currentPalette().bombContainerColor
+val rocketContainerColor: RGBA get() = currentPalette().rocketContainerColor
 
-val emptyCartridgeColor = Colors["#e6e6e6A0"]
+val emptyCartridgeColor: RGBA get() = currentPalette().emptyCartridgeColor
 
 // Semi-transparent so the cartridge outline reads as a soft border, not a glaring frame.
-val cartridgeBorderColor = Colors["#ffffff99"]
+val cartridgeBorderColor: RGBA get() = currentPalette().cartridgeBorderColor
 
-val loadedBombCartridgeColor =  Colors["#1f3079"]
+val loadedBombCartridgeColor: RGBA get() = currentPalette().loadedBombCartridgeColor
 
-val loadedRocketCartridgeColor =  Colors["#F87855"]
+val loadedRocketCartridgeColor: RGBA get() = currentPalette().loadedRocketCartridgeColor
 
-val pauseScreenBlockColor = Colors["#a3d6b8"]
-val pauseScreenBlockCopiedColor = Colors["#6fcf97"]
+val pauseScreenBlockColor: RGBA get() = currentPalette().pauseScreenBlockColor
+val pauseScreenBlockCopiedColor: RGBA get() = currentPalette().pauseScreenBlockCopiedColor
 
-val pauseScreenTextColor = Colors["#12291b"]
-val pauseScreenTextHoverColor = RGBA(90, 90, 90)
-val pauseScreenTextDownColor = RGBA(120, 120, 120)
-
+val pauseScreenTextColor: RGBA get() = currentPalette().pauseScreenTextColor
+val pauseScreenTextHoverColor: RGBA get() = currentPalette().pauseScreenTextHoverColor
+val pauseScreenTextDownColor: RGBA get() = currentPalette().pauseScreenTextDownColor

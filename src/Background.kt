@@ -74,9 +74,10 @@ private const val edgeFadeMin = 0.45   // colour strength left once the wave rea
 
 // Vertical gradient the facet base colours are sampled from: a calm dusty blue
 // at the top easing through warm cream into gradBotColor at the bottom — that
-// bottom colour climbs the block tiers as the game progresses.
-private val gradTop = RGBA(150, 178, 196)
-private val gradMid = RGBA(244, 230, 212)
+// bottom colour climbs the block tiers as the game progresses. The top + middle
+// stops come from the active theme; the bottom tracks the highest forged tier.
+private val gradTop: RGBA get() = currentPalette().gradTop
+private val gradMid: RGBA get() = currentPalette().gradMid
 
 private fun RGBA.scaledRGB(f: Double): RGBA =
     RGBA(
@@ -113,6 +114,10 @@ private fun pulseEnvelope(lp: Double): Double =
     }
 
 fun Stage.setupBackground() {
+    // Honour the theme loaded at boot: re-read the gradient bottom from the current tier color so
+    // the very first frame is themed correctly (gradBotColor may have initialised under BASIC).
+    gradBotColor = gradBotTier.color
+
     val vw = views.virtualWidth.toDouble()
     val vh = views.virtualHeight.toDouble()
 
@@ -202,6 +207,9 @@ fun Stage.setupBackground() {
     }
 
     buildAdjacency()
+
+    // Re-tint every facet when the player switches color theme, keeping the tier progress.
+    colorTheme.observe { refreshBackgroundColors() }
 
     // Idle frames are a no-op: the triangles hold their base colours and the
     // renderer redraws them as-is. Only an active pulse re-tints facets.
@@ -351,6 +359,19 @@ fun triggerBackgroundPulse(tier: Rank, centerX: Double, centerY: Double) {
         if (d > maxDist) maxDist = d
     }
     pulseMaxDist = maxDist
+}
+
+// Re-tints the whole mesh for a new color theme: recomputes the gradient bottom from the current
+// tier (under the new palette) and re-bases every facet, *without* resetting the tier — so the
+// player's progress glow is preserved across a live theme switch.
+fun refreshBackgroundColors() {
+    gradBotColor = gradBotTier.color
+    pulseGradFrom = gradBotColor
+    pulseGradTo = gradBotColor
+    for (t in tris) {
+        t.baseColor = baseColorAt(t.ny, t.jitter, gradBotColor)
+        t.view.colorMul = t.baseColor
+    }
 }
 
 // Restores the gradient to its opening state (gray -> green) for a new game.

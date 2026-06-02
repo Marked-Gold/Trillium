@@ -16,7 +16,7 @@ import kotlin.math.sin
  * square) so callers can `centerOn` / `align*` it like a plain image.
  */
 
-private val iconInk = Colors["#12291b"]
+private val iconInk: RGBA get() = currentPalette().iconInk
 
 private fun Container.iconBox(
     s: Double,
@@ -250,6 +250,46 @@ fun Container.shieldIcon(
                 moveTo(s * 0.36, s * 0.50)
                 lineTo(s * 0.46, s * 0.61)
                 lineTo(s * 0.66, s * 0.40)
+            }
+        }
+    }
+
+/** Gravity icon — a downward arrow, marking gravity mode (pieces fall, new ones drop from the
+ * top). Reused for the settings toggle row and the small in-game BEST-box mode indicator. */
+fun Container.gravityIcon(
+    s: Double,
+    color: RGBA = iconInk,
+): Container =
+    iconBox(s) {
+        graphics {
+            // Vertical stem.
+            stroke(color, lineWidth = s * 0.135, lineCap = LineCap.ROUND) {
+                moveTo(s * 0.5, s * 0.16)
+                lineTo(s * 0.5, s * 0.60)
+            }
+            // Arrowhead pointing down.
+            fill(color) {
+                moveTo(s * 0.5, s * 0.86)
+                lineTo(s * 0.28, s * 0.55)
+                lineTo(s * 0.72, s * 0.55)
+                close()
+            }
+        }
+    }
+
+/** Themes icon — three overlapping rings, the classic "colors / palette" glyph. Labels the THEMES
+ * row in the settings sub-menu (the color-theme picker). */
+fun Container.paletteIcon(
+    s: Double,
+    color: RGBA = iconInk,
+): Container =
+    iconBox(s) {
+        graphics {
+            stroke(color, lineWidth = s * 0.075, lineCap = LineCap.ROUND) {
+                val r = s * 0.20
+                circle(Point(s * 0.40, s * 0.40), r)
+                circle(Point(s * 0.60, s * 0.40), r)
+                circle(Point(s * 0.50, s * 0.61), r)
             }
         }
     }

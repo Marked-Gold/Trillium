@@ -5,6 +5,7 @@ import korlibs.math.geom.*
 import korlibs.math.geom.vector.*
 import korlibs.time.*
 import kotlin.math.exp
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.random.Random
 
@@ -33,6 +34,15 @@ private val emberColor = Colors["#ffd27a"]
 
 private const val EMBER_COUNT = 6
 private const val EXHAUST_COUNT = 8
+
+// The rocket's red accent (nose cone, fins) is themed; the light/dark gradient stops are derived
+// from the base by blending toward white / black so any theme accent yields a coherent shaded part.
+private fun RGBA.mix(o: RGBA, t: Double): RGBA = RGBA(
+    (r + (o.r - r) * t).roundToInt().coerceIn(0, 255),
+    (g + (o.g - g) * t).roundToInt().coerceIn(0, 255),
+    (b + (o.b - b) * t).roundToInt().coerceIn(0, 255),
+    255,
+)
 
 /**
  * Appends a flame outline to the current path: a rounded top lobe centred on
@@ -244,6 +254,9 @@ class BombIcon(
 class RocketIcon(
     private val s: Double,
     private val loaded: Boolean,
+    // Themed red accent for the nose cone + fins; defaults to the Basic theme's mid-red so the
+    // un-themed look is unchanged. Light/dark stops are derived from this via [mix].
+    private val accent: RGBA = Colors["#e8503a"],
     private val isActive: () -> Boolean,
 ) : Container() {
 
@@ -291,9 +304,9 @@ class RocketIcon(
         }
         val accentPaint = LinearGradientPaint(s * 0.335, 0.0, s * 0.665, 0.0) {
             if (loaded) {
-                addColorStop(0.0, Colors["#ff8a73"])
-                addColorStop(0.45, Colors["#e8503a"])
-                addColorStop(1.0, Colors["#ad2f1c"])
+                addColorStop(0.0, accent.mix(Colors.WHITE, 0.35))
+                addColorStop(0.45, accent)
+                addColorStop(1.0, accent.mix(Colors.BLACK, 0.30))
             } else {
                 addColorStop(0.0, Colors["#bdbdc2"])
                 addColorStop(0.45, Colors["#a9a9ae"])
@@ -311,7 +324,7 @@ class RocketIcon(
                 addColorStop(1.0, Colors["#6c6c72"])
             }
         }
-        val finColor = if (loaded) Colors["#c33c28"] else Colors["#94949a"]
+        val finColor = if (loaded) accent.mix(Colors.BLACK, 0.18) else Colors["#94949a"]
         val glassPaint = RadialGradientPaint(s * 0.478, s * 0.392, 0.0, s * 0.5, s * 0.415, s * 0.085) {
             if (loaded) {
                 addColorStop(0.0, Colors["#e4f5fc"])
@@ -472,5 +485,6 @@ fun Container.bombIcon(
 fun Container.rocketIcon(
     s: Double,
     loaded: Boolean,
+    accent: RGBA = currentPalette().rocketAccent,
     isActive: () -> Boolean,
-): RocketIcon = RocketIcon(s, loaded, isActive).addTo(this)
+): RocketIcon = RocketIcon(s, loaded, accent, isActive).addTo(this)
