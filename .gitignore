@@ -26,3 +26,5 @@ node_modules/
 .wrangler/
 # Claude Code scratch directory (scheduled-task locks, etc.)
 .claude/
+# Device crash reports pulled in for debugging (see CLAUDE.md)
+crashlog-*.ips
