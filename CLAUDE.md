@@ -117,10 +117,24 @@ Xcode → Window → Organizer → Archives) → **Distribute App** → **App St
 new iOS version, select the uploaded build once it finishes processing, fill in **What's New**, and
 **Submit for Review**. (App Privacy / age-rating are already set from the first submission.)
 
+**dSYM upload warnings on Distribute:** two — `GoogleMobileAds.framework` and
+`UserMessagingPlatform.framework` — are unavoidable and harmless: Google ships those release
+frameworks stripped (no dSYMs), so crashes inside Google's ad code just won't symbolicate. A third,
+`GameMain.framework` (all of our Kotlin/Native code), is auto-fixed by the `Bundle GameMain dSYM
+into archive` build phase (see gotchas). If it ever recurs, the release-framework dSYM lives at
+`build/bin/iosArm64/releaseFramework/GameMain.framework.dSYM` — verify its UUID matches the app's
+embedded framework (`dwarfdump --uuid …`) and copy it into `<archive>.xcarchive/dSYMs/` **before**
+opening the Organizer to Distribute. To symbolicate a `.ips`/`.crash` after the fact, keep that
+dSYM and run `atos`/`symbolicatecrash` against it locally.
+
 ### Gotchas baked into `build.gradle.kts` (don't undo these)
 
 - iOS `STRIP_STYLE: non-global` on `app-Arm64-Release` — without it `strip` wipes the dyld export
   trie and the app crashes on launch with `symbol not found in flat namespace '_OBJC_CLASS_$_TriploAds'`.
 - A `postBuildScripts` step verifies `_OBJC_CLASS_$_TriploAds` is exported and fails the build if not.
+- A second `postBuildScripts` step (`Bundle GameMain dSYM into archive`) copies the Kotlin/Native
+  framework's dSYM into `$DWARF_DSYM_FOLDER_PATH` so the archive carries it and App Store Connect's
+  symbol upload succeeds (guarded + non-fatal — only acts during an archive). Without it, our own
+  crashes never symbolicate.
 - Android pins `play-services-ads` and overrides the R8/D8 dexer in `settings.gradle.kts` — GMA 25.x
   otherwise crashes on launch with a D8 `VerifyError` under KorGE's AGP.

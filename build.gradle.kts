@@ -304,6 +304,23 @@ fun patchIosProjectYml(projectYml: File) {
                 out.append("            echo \"error: _OBJC_CLASS_\$_TriploAds is not an exported symbol in \$BIN — either TriploAds.m did not link, or the class is hidden (check __attribute__((visibility(\\\"default\\\"))) on @interface TriploAds). The app will crash on launch with 'symbol not found in flat namespace'.\" >&2\n")
                 out.append("            exit 1\n")
                 out.append("          fi\n")
+                // Bundle the Kotlin/Native framework's dSYM into the archive. KorGE's generated
+                // project archives only the app's own dSYM, not the embedded GameMain.framework's,
+                // so distribution reports "Upload Symbols Failed … no dSYM for GameMain.framework"
+                // and crash reports for our own code (all of GameMain) never symbolicate. Copying
+                // the release-framework dSYM into $DWARF_DSYM_FOLDER_PATH here lands it in the
+                // .xcarchive/dSYMs so the symbol upload succeeds. Guarded + non-fatal: only acts
+                // when a dSYM folder exists (i.e. during archive) and the source dSYM is present,
+                // and never fails the build. (Google's GoogleMobileAds / UserMessagingPlatform
+                // frameworks ship stripped with no dSYMs — those two warnings are unavoidable.)
+                out.append("      - name: Bundle GameMain dSYM into archive\n")
+                out.append("        basedOnDependencyAnalysis: false\n")
+                out.append("        script: |\n")
+                out.append("          SRC=\"\$SRCROOT/../../../build/bin/iosArm64/releaseFramework/GameMain.framework.dSYM\"\n")
+                out.append("          if [ -n \"\$DWARF_DSYM_FOLDER_PATH\" ] && [ -d \"\$SRC\" ]; then\n")
+                out.append("            echo \"note: bundling GameMain.framework.dSYM into \$DWARF_DSYM_FOLDER_PATH\"\n")
+                out.append("            cp -R \"\$SRC\" \"\$DWARF_DSYM_FOLDER_PATH/\" || echo \"warning: failed to copy GameMain dSYM\"\n")
+                out.append("          fi\n")
             }
             // Link the GoogleMobileAds and UMP packages into every app target.
             line.trimStart().startsWith("- framework:") -> {
