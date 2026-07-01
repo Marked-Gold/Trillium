@@ -44,9 +44,14 @@ fun Stage.unsuccessfulShape() {
     removeSelection()
     hoveredPositions
         .forEach { position ->
-            blocksMap[position] = blocksMap[position]?.unselect()!!
+            val block = blocksMap[position]?.unselect()
+            if (block == null) {
+                Napier.e("unsuccessfulShape: no block at hovered ${position.log()}")
+                return@forEach
+            }
+            blocksMap[position] = block
             Napier.d("Removing hovered ${position.log()}")
-            updateBlock(blocksMap[position]!!, position)
+            updateBlock(block, position)
         }
     hoveredPositions.clear()
 }
@@ -73,6 +78,8 @@ fun tryAddBombs(numberOfBombs: Int)  {
 }
 
 fun removeBomb()  {
+    // Debug: keep the rack full so bombs can be thrown indefinitely while hunting a crash.
+    if (debugInfiniteBombs) return
     Napier.d("Removing a bomb")
     val newBombCount = max(bombsLoadedCount.value - 1, 0)
     bombsLoadedCount.update(newBombCount)

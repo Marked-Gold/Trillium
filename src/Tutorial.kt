@@ -33,7 +33,7 @@ var tutorialActive = false
 // selection (used by the bomb/rocket steps, whose power-up flows do not go through this gate).
 var tutorialAllowedPositions: Set<Position>? = null
 
-private enum class TStep { WELCOME, MERGE, LINE, SQUARE, BOMB, ROCKET, UNDO, GAMEON }
+private enum class TStep { WELCOME, MERGE, LINE, SQUARE, BOMB, ROCKET, SHARE, PAUSE, GAMEON }
 
 private val tStepOrder = TStep.values()
 private val mergeSteps = setOf(TStep.MERGE, TStep.LINE, TStep.SQUARE)
@@ -66,7 +66,9 @@ private val footerColor = Colors["#FFD23F"]
 /** Whether the board accepts touches at all in the current tutorial step. */
 fun tutorialBoardEnabled(): Boolean =
     !tutorialActive ||
-        (currentTStep != TStep.WELCOME && currentTStep != TStep.UNDO && currentTStep != TStep.GAMEON)
+        currentTStep in mergeSteps ||
+        currentTStep == TStep.BOMB ||
+        currentTStep == TStep.ROCKET
 
 /** Whether tapping the bomb power-up icon is allowed right now. */
 fun tutorialAllowsBombTap(): Boolean = !tutorialActive || currentTStep == TStep.BOMB
@@ -178,10 +180,20 @@ private fun Stage.showCurrentTutorialStep() {
                 highlightActive = { !rocketSelection.selected },
             )
         }
-        TStep.UNDO -> {
-            tutorialAllowedPositions = null
-            showPageStep(undoPage(), "TAP TO CONTINUE")
-        }
+        TStep.SHARE ->
+            showSpotlightStep(
+                "SHARE YOUR SCORE",
+                "Tap SCORE or BEST to copy your board",
+                "Paste it anywhere to challenge your friends.",
+                listOf(scoreBoxView, bestBoxView),
+            )
+        TStep.PAUSE ->
+            showSpotlightStep(
+                "PAUSE MENU",
+                "Tap here any time to pause",
+                "Undo a move, restart, share or switch themes.",
+                listOf(pauseButtonView),
+            )
         TStep.GAMEON -> showGameOnStep()
     }
 }
@@ -295,6 +307,49 @@ private fun Stage.showActionStep(
         }
 }
 
+// ---- Step: spotlight a live top-bar element (score / best / pause) --------------------------
+
+/**
+ * Highlights one or more live UI elements sitting above the board — the SCORE / BEST boxes or the
+ * pause button — and explains them with a coach banner below whose arrow points up at them. These
+ * steps teach features that live off the board (sharing, the pause menu), so there is no scripted
+ * board action: a transparent full-screen catcher advances the step on a tap anywhere.
+ */
+private fun Stage.showSpotlightStep(
+    title: String,
+    line: String,
+    note: String?,
+    targets: List<View>,
+) {
+    // No board cell may be selected during these steps.
+    tutorialAllowedPositions = emptySet()
+    val minX = targets.minOf { it.x }
+    val maxX = targets.maxOf { it.x + it.width }
+    val bottomY = targets.maxOf { it.y + it.height }
+    val pointerX = (minX + maxX) / 2.0
+    val width = fieldWidth.toDouble()
+    tutorialContainer =
+        container {
+            // Transparent catcher: any tap advances. Added first so it sits behind the highlight and
+            // banner and never dims the spotlighted element (matching the bomb/rocket steps' look).
+            solidRect(views.virtualWidth * 6.0, views.virtualHeight * 6.0, RGBA(0, 0, 0, 0)) {
+                xy(-views.virtualWidth * 2.5, -views.virtualHeight * 2.5)
+                onClick { advanceTutorial() }
+            }
+            targets.forEach { t ->
+                pulseHighlight(t.x, t.y, t.width, t.height, 6.0)
+            }
+            coachPanel(
+                title, line, note,
+                x = leftIndent.toDouble(),
+                y = bottomY + 18.0,
+                width = width,
+                pointerX = pointerX,
+                arrowUp = true,
+            )
+        }
+}
+
 // ---- Step: closing "GAME ON" splash --------------------------------------------------------
 
 /** Types out "GAME ON" (the same effect as the game-over screen), then ends the tutorial. */
@@ -359,6 +414,7 @@ private fun Container.coachPanel(
     y: Double,
     width: Double,
     pointerX: Double? = null,
+    arrowUp: Boolean = false,
 ) {
     val lineLines = coachLineLines(line, width)
     val h = coachHeight(line, note, width)
@@ -369,10 +425,18 @@ private fun Container.coachPanel(
             val tx = px - x
             graphics {
                 fill(coachBg) {
-                    moveTo(tx - 13.0, h - 1.0)
-                    lineTo(tx + 13.0, h - 1.0)
-                    lineTo(tx, h + 16.0)
-                    close()
+                    if (arrowUp) {
+                        // Arrow on the top edge, pointing up at a target above the banner.
+                        moveTo(tx - 13.0, 1.0)
+                        lineTo(tx + 13.0, 1.0)
+                        lineTo(tx, -16.0)
+                        close()
+                    } else {
+                        moveTo(tx - 13.0, h - 1.0)
+                        lineTo(tx + 13.0, h - 1.0)
+                        lineTo(tx, h + 16.0)
+                        close()
+                    }
                 }
             }
         }
@@ -573,20 +637,22 @@ private fun infoPages(): List<InfoPage> =
         InfoPage(
             "LINES",
             listOf(
-                "Longer chains climb faster: a chain of 6+ jumps " +
-                    "two tiers, 18+ jumps three.",
-                "A straight line splits into several upgraded " +
-                    "blocks at once.",
+                "A straight line of 4+ blocks forges several " +
+                    "upgraded blocks at once.",
+                "The longer the line, the higher they climb - a " +
+                    "line of 7 even splits into two different tiers.",
             ),
             diagram = { lineDiagram() },
         ),
         InfoPage(
             "SQUARES",
             listOf(
-                "Fill a square or rectangle and merge it all at " +
-                    "once.",
-                "The longer its shorter side, the higher it " +
-                    "climbs - and it forges several blocks.",
+                "Fill a solid square or rectangle to merge it all " +
+                    "at once - the wider its shorter side, the higher " +
+                    "it climbs.",
+                "A 3x3 leaps four tiers into one block - and it lands " +
+                    "on the last tile you select, so you place it where " +
+                    "you want. A 4x4 forges four such blocks.",
             ),
             diagram = { squareDiagram() },
         ),
@@ -737,34 +803,72 @@ private fun Container.mergeResultsDiagram() {
     }
 }
 
-/** A line of five tier-1 blocks merging up. */
+/** How a straight line of 4-7 same blocks resolves, one row per length. */
 private fun Container.lineDiagram() {
-    val s = 26.0
-    val gap = 5.0
-    var x = 0.0
-    repeat(5) {
-        miniBlock(ZERO, s).xy(x, 0.0)
-        x += s + gap
+    val s = 19.0
+    val gap = 4.0
+    val rowGap = 9.0
+    val arrowW = 24.0
+    // The arrow sits in a fixed column with room for the longest (7-block) line,
+    // so every row's results line up no matter how long the input line is.
+    val arrowCol = 7 * (s + gap) + 6.0
+    // (line length, the ranks of the blocks it forges)
+    val rows =
+        listOf(
+            4 to listOf(ONE, ONE),
+            5 to listOf(TWO),
+            6 to listOf(TWO, TWO),
+            7 to listOf(TWO, THREE),
+        )
+    var y = 0.0
+    for ((count, results) in rows) {
+        var x = 0.0
+        repeat(count) {
+            miniBlock(ZERO, s).xy(x, y)
+            x += s + gap
+        }
+        diagramArrow(arrowCol, y + s / 2.0)
+        var rx = arrowCol + arrowW
+        for (rank in results) {
+            miniBlock(rank, s).xy(rx, y)
+            rx += s + gap
+        }
+        y += s + rowGap
     }
-    diagramArrow(x + 2.0, s / 2.0)
-    x += 26.0
-    miniBlock(TWO, s).xy(x, 0.0)
 }
 
-/** A 2x2 square of tier-1 blocks merging into two tier-2 blocks. */
+/** How filled squares resolve: 2x2, 3x3 and 4x4, one row each. */
 private fun Container.squareDiagram() {
-    val s = 30.0
-    val gap = 5.0
-    for (j in 0 until 2) {
-        for (i in 0 until 2) {
-            miniBlock(ZERO, s).xy(i * (s + gap), j * (s + gap))
+    val s = 15.0
+    val gap = 3.0
+    val rowGap = 12.0
+    val arrowW = 22.0
+    // Fixed arrow column with room for the widest (4x4) grid, so the results align.
+    val arrowCol = 4 * (s + gap) + 8.0
+    // (square side, the ranks of the blocks it forges)
+    val rows =
+        listOf(
+            2 to listOf(ONE, ONE),
+            3 to listOf(FOUR),
+            4 to listOf(FOUR, FOUR, FOUR, FOUR),
+        )
+    var y = 0.0
+    for ((n, results) in rows) {
+        val rowH = n * s + (n - 1) * gap
+        for (j in 0 until n) {
+            for (i in 0 until n) {
+                miniBlock(ZERO, s).xy(i * (s + gap), y + j * (s + gap))
+            }
         }
+        val cy = y + rowH / 2.0
+        diagramArrow(arrowCol, cy)
+        var rx = arrowCol + arrowW
+        for (rank in results) {
+            miniBlock(rank, s).xy(rx, cy - s / 2.0)
+            rx += s + gap
+        }
+        y += rowH + rowGap
     }
-    diagramArrow(2 * (s + gap) + 4.0, s + gap / 2.0)
-    // A 2x2 merge forges two upgraded blocks, not one.
-    val rx = 2 * (s + gap) + 30.0
-    miniBlock(ONE, s).xy(rx, 0.0)
-    miniBlock(ONE, s).xy(rx, s + gap)
 }
 
 /** A 3x3 grid with the blasted centre highlighted. */

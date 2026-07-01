@@ -106,9 +106,14 @@ const val gravityBestKey = "gravityBest"
 /** Above this score, switching game mode warns first (it discards the current run). */
 const val gravityConfirmScoreThreshold = 100
 
+// Debug toggle: when true the player starts every round with a full rack of bombs and
+// detonating one never consumes it — so you can bomb indefinitely to hunt for a crash.
+// Leave this `false` for normal play / any shipped build.
+const val debugInfiniteBombs = false
+
 const val startingBombCount = 1
 const val maxBombCount = 5
-var bombsLoadedCount = ObservableProperty(startingBombCount)
+var bombsLoadedCount = ObservableProperty(if (debugInfiniteBombs) maxBombCount else startingBombCount)
 var bombSelected = false
 var bombContainer: Container = Container()
 
@@ -119,10 +124,24 @@ var rocketsLoadedCount = ObservableProperty(startingRocketCount)
 var rocketSelection = RocketSelection()
 var rocketContainer: Container = Container()
 
+// Live UI elements the interactive tutorial spotlights in its closing steps (assigned during
+// setup): the pause button and the SCORE / BEST boxes it teaches players to tap for sharing.
+var pauseButtonView: View = Container()
+var scoreBoxView: View = Container()
+var bestBoxView: View = Container()
+
 var bombScaleNormal = 0.0
 var bombScaleSelected = 0.0
 var rocketScaleNormal = 0.0
 var rocketScaleSelected = 0.0
+
+// Home (resting) position of each power-up container, captured once after layout. The
+// select/deselect animation targets these absolute coordinates rather than offsetting from the
+// live position, so overlapping tweens from rapid use can't accumulate drift.
+var bombHomeX = 0.0
+var bombHomeY = 0.0
+var rocketHomeX = 0.0
+var rocketHomeY = 0.0
 
 var blockScaleNormal = 0.0
 var blockScaleSelected = 0.0
@@ -314,6 +333,7 @@ suspend fun main() =
                         }
                 }
             }
+        pauseButtonView = restartBlock
 
         val bgScore =
             roundRect(Size(cellSize * 2.5, cellSize * 1.5), RectCorners(5), fill = restartAndScoreColor) {
@@ -359,15 +379,20 @@ suspend fun main() =
             stage?.views?.copyTextToClipboard(buildShareMessage(blocksMap, score.value, gravityModeEnabled.value))
             scoreValue.visible = false
             scoreCopiedText.visible = true
+            // The box turns the bright copied fill, so the SCORE label needs a contrasting ink for
+            // that fill too — otherwise it stays scoreTextColor (light cyan in NEON) and vanishes.
+            scoreLabel.color = contrastInkOn(pauseScreenBlockCopiedColor)
             bgScore.fill = pauseScreenBlockCopiedColor
             stage?.views?.launchImmediately {
                 delay(1200L)
                 scoreCopiedText.visible = false
                 scoreValue.visible = true
+                scoreLabel.color = scoreTextColor
                 bgScore.fill = restartAndScoreColor
                 scoreCopiedShowing = false
             }
         }
+        scoreBoxView = bgScore
 
         val bgBest =
             roundRect(Size(cellSize * 2.5, cellSize * 1.5), RectCorners(5), fill = restartAndScoreColor) {
@@ -410,11 +435,14 @@ suspend fun main() =
             stage?.views?.copyTextToClipboard(msg)
             bestValueText.visible = false
             bestCopiedText.visible = true
+            // Same as the SCORE box: recolour the BEST label to stay legible on the copied fill.
+            bestLabel.color = contrastInkOn(pauseScreenBlockCopiedColor)
             bgBest.fill = pauseScreenBlockCopiedColor
             stage?.views?.launchImmediately {
                 delay(1200L)
                 bestCopiedText.visible = false
                 bestValueText.visible = true
+                bestLabel.color = scoreTextColor
                 bgBest.fill = restartAndScoreColor
                 bestCopiedShowing = false
             }
@@ -441,6 +469,7 @@ suspend fun main() =
             gravityModeIcon = gravityIcon(cellSize * 0.42, scoreTextColor)
             placeGravityModeIcon()
         }
+        bestBoxView = bgBest
 
         val emptyBombImg = resourcesVfs["emptyBomb.png"].readBitmap()
         val loadedBombImg = resourcesVfs["bomb.png"].readBitmap()
@@ -568,6 +597,13 @@ suspend fun main() =
         bombScaleSelected = bombScaleNormal * 1.2
         rocketScaleNormal = rocketContainer.scale
         rocketScaleSelected = rocketScaleNormal * 1.2
+
+        // Snapshot resting positions now that the power-up row has been laid out; the
+        // select/deselect tween returns to these exact coordinates (see animatePowerUpSelection).
+        bombHomeX = bombContainer.x
+        bombHomeY = bombContainer.y
+        rocketHomeX = rocketContainer.x
+        rocketHomeY = rocketContainer.y
 
         Napier.d("UI Initialized")
 
@@ -885,7 +921,7 @@ fun Container.showRestart(isGameOver: Boolean = false, onRestart: () -> Unit) =
                 // Faux-bold: clear_sans.fnt is a single-weight bitmap font, so stamp the
                 // text twice with a 1px offset to thicken the strokes.
                 for (offset in listOf(0.0, 1.0)) {
-                    headingGlyphs += text(headingText, 20.0, RGBA(0, 0, 0), font) {
+                    headingGlyphs += text(headingText, 20.0, pauseScreenTextColor, font) {
                         alignment = TextAlignment.MIDDLE_CENTER
                         x = offset
                     }
@@ -1510,7 +1546,7 @@ fun Container.restart() {
     // Drop any pending undo history — the new board has no connection to the previous game.
     Undo.clear()
     score.update(0)
-    bombsLoadedCount.update(startingBombCount)
+    bombsLoadedCount.update(if (debugInfiniteBombs) maxBombCount else startingBombCount)
     rocketsLoadedCount.update(startingRocketCount)
     blocksMap.values.forEach { it.removeFromParent() }
     blocksMap.clear()

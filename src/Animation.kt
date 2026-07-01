@@ -5,13 +5,40 @@ import korlibs.korge.view.*
 import korlibs.io.async.launchImmediately
 import korlibs.math.interpolation.*
 import korlibs.math.geom.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
 
-fun Stage.animateMerge(mergeMap: MutableMap<Position, Pair<Rank, List<Position>>>) =
+// Breadcrumb naming the board-changing action currently in flight (merge / bomb / rocket / ...).
+// Folded into recovery logs so a rare failure pinpoints which path broke.
+var lastGameAction: String = "none"
+
+/**
+ * [launchImmediately] with a crash guard. On Kotlin/Native (iOS) an exception that escapes a
+ * coroutine terminates the whole process — unlike JVM/JS, where it is merely logged — so every
+ * board-changing animation launches through this instead: the failure is logged with the
+ * [lastGameAction] breadcrumb and input is unlocked, leaving the game playable.
+ *
+ * Note the guard only covers the coroutine itself. `block { }` / `sequenceLazy { }` bodies inside
+ * an `animate { }` run later, on the frame loop — those must stay null-safe end to end.
+ */
+fun Stage.launchGameAnimation(action: String, body: suspend () -> Unit) =
     launchImmediately {
+        lastGameAction = action
+        try {
+            body()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            Napier.e("Recovered from crash during '$action': $e\n${e.stackTraceToString()}")
+            stopAnimating()
+        }
+    }
+
+fun Stage.animateMerge(mergeMap: MutableMap<Position, Pair<Rank, List<Position>>>) =
+    launchGameAnimation("merge") {
         startAnimating()
         // One bomb is awarded for every block of 243 (tier FIVE) or higher created
         // by this merge, regardless of whether that tier has been reached before.
@@ -31,22 +58,31 @@ fun Stage.animateMerge(mergeMap: MutableMap<Position, Pair<Rank, List<Position>>
                 mergeMap.forEach { (headPosition, valueAndMergePositions) ->
                     val mergePositions = valueAndMergePositions.second
                     mergePositions.forEach { position ->
+                        // A missing source block means the board state desynced; skip the tween
+                        // rather than crash — the block {} below re-checks before deleting.
+                        val source = blocksMap[position]
+                        if (source == null) {
+                            Napier.e("animateMerge: no block at source ${position.log()} merging into ${headPosition.log()}")
+                            return@forEach
+                        }
                         Napier.d("Moving block from ${position.log()} to new block")
                         moveTo(
-                            blocksMap[position]!!,
+                            source,
                             getXFromPosition(headPosition) + cellSize / 2,
                             getYFromPosition(headPosition) + cellSize / 2,
                             0.15.seconds,
                             Easing.LINEAR,
                         )
-                        scaleTo(blocksMap[position]!!, 0, 0, 0.15.seconds, Easing.LINEAR)
+                        scaleTo(source, 0, 0, 0.15.seconds, Easing.LINEAR)
                     }
                 }
             }
             block {
+                // Runs on the frame loop, outside the launch guard: a throw here would kill the
+                // iOS process, so every board access stays null-safe.
                 Napier.v("Animating deletion of previous blocks and adding new upgraded block")
                 mergeMap.forEach { (headPosition, valueAndMergePositions) ->
-                    valueAndMergePositions.second.forEach { position -> deleteBlock(blocksMap[position]!!) }
+                    valueAndMergePositions.second.forEach { position -> deleteBlock(blocksMap[position]) }
                     val value = valueAndMergePositions.first
                     if (value.ordinal >= Rank.FIVE.ordinal) bombsEarned++
                     if (value.ordinal >= Rank.FOUR.ordinal &&
@@ -58,8 +94,15 @@ fun Stage.animateMerge(mergeMap: MutableMap<Position, Pair<Rank, List<Position>>
                     if (highestMergeTier == null || value.ordinal > highestMergeTier!!.ordinal) {
                         highestMergeTier = value
                     }
-                    val newBlock = blocksMap[headPosition]!!.updateRank(value).unselect().copy()
-                    deleteBlock(blocksMap[headPosition]!!)
+                    val headBlock = blocksMap[headPosition]
+                    if (headBlock == null) {
+                        // The head vanished mid-merge; the refill step below repopulates the cell,
+                        // so skipping the upgrade keeps the board playable.
+                        Napier.e("animateMerge: no head block at ${headPosition.log()}; skipping upgrade")
+                        return@forEach
+                    }
+                    val newBlock = headBlock.updateRank(value).unselect().copy()
+                    deleteBlock(headBlock)
                     blocksMap[headPosition] = newBlock
                     drawBlock(newBlock, headPosition)
                 }
@@ -147,12 +190,12 @@ fun Stage.checkGameOver() {
     maybeCaptureBestShare()
     if (!hasAvailableMoves() && bombsLoadedCount.value == 0 && rocketsLoadedCount.value == 0) {
         Napier.d("Game Over!")
-        launchImmediately {
+        launchGameAnimation("game-over") {
             // First the board shakes to signal the dead end, then the screen staggers in.
             animateBoardShake()
             showRestart(isGameOver = true) {
                 // Only show the interstitial once the player chooses to restart.
-                launchImmediately {
+                launchGameAnimation("restart") {
                     Ads.showInterstitial()
                     restart()
                 }
@@ -255,22 +298,27 @@ fun Animator.animateConsumption(block: Block) {
 fun Stage.animatePowerUpSelection(
     image: View,
     toggle: Boolean,
-) = launchImmediately {
+) = launchGameAnimation("powerup-select") {
+    // Animate to ABSOLUTE home / selected coordinates rather than offsetting from the view's live
+    // position. Each call spawns its own 0.1s tween, and when bombs are used in quick succession
+    // those tweens overlap: a relative offset captured from a mid-tween position no longer cancels
+    // its counterpart, so the icon used to creep up-left. Absolute targets always converge home.
+    val isRocket = image === rocketContainer
+    val homeX = if (isRocket) rocketHomeX else bombHomeX
+    val homeY = if (isRocket) rocketHomeY else bombHomeY
     animate {
-        val x = image.x
-        val y = image.y
         if (toggle) {
             tween(
-                image::x[x - 8],
-                image::y[y - 12],
+                image::x[homeX - 8],
+                image::y[homeY - 12],
                 image::scale[bombScaleSelected],
                 time = 0.1.seconds,
                 easing = Easing.LINEAR,
             )
         } else {
             tween(
-                image::x[x + 8],
-                image::y[y + 12],
+                image::x[homeX],
+                image::y[homeY],
                 image::scale[bombScaleNormal],
                 time = 0.1.seconds,
                 easing = Easing.LINEAR,
@@ -316,7 +364,7 @@ fun View.animateGameOverIntro(
         it.alpha = 0.0
         it.y += 16.0
     }
-    stage.launchImmediately {
+    stage.launchGameAnimation("game-over-intro") {
         // 1. The dark overlay fades up (~0.35s).
         animate { alpha(overlay, 1.0, 0.35.seconds, Easing.EASE_OUT) }.awaitComplete()
         // 2. The heading types out, one character at a time (~0.63s).
@@ -338,12 +386,12 @@ fun View.animateGameOverIntro(
 }
 
 fun Stage.generateNewBlocks() =
-    launchImmediately {
+    launchGameAnimation("spawn") {
         if (gravityModeEnabled.value) {
             // Gravity mode: collapse the columns and drop fresh pieces in from the top instead of
             // filling the cleared cells where they sit.
             animate { animateGravityRefill(this@generateNewBlocks) }
-            return@launchImmediately
+            return@launchGameAnimation
         }
         val newPositionBlocks = generateBlocksForEmptyPositions()
         Napier.d("Generating new blocks ${newPositionBlocks.map { (position, block) -> "${block.number.value} at (${position.log()}\n" }}")
@@ -375,7 +423,7 @@ fun Stage.generateNewBlocks() =
     }
 
 fun Stage.animateBomb() =
-    launchImmediately {
+    launchGameAnimation("bomb") {
         startAnimating()
         Sfx.bomb()
         Napier.v("Animating the bomb")
@@ -385,7 +433,7 @@ fun Stage.animateBomb() =
 
         // Run the long fly-off in the background so the new pieces can start
         // dropping in while the old tiles are still spinning away.
-        val flyOff = launchImmediately {
+        val flyOff = launchGameAnimation("bomb-flyoff") {
             animate {
                 parallel {
                     flyingBlocks.forEach { block ->
@@ -439,7 +487,7 @@ fun Stage.animateBomb() =
     }
 
 fun Stage.animateRocket(selection: RocketSelection) =
-    launchImmediately {
+    launchGameAnimation("rocket") {
         when {
             (selection.firstPosition == null) -> Napier.e("No first position when animating rockets")
             (selection.secondPosition == null) -> Napier.e("No second position when animating rockets")
@@ -448,8 +496,16 @@ fun Stage.animateRocket(selection: RocketSelection) =
                 Sfx.rocket()
                 val firstPosition = selection.firstPosition!!
                 val secondPosition = selection.secondPosition!!
-                val firstBlock = blocksMap[firstPosition]!!
-                val secondBlock = blocksMap[secondPosition]!!
+                val firstBlock = blocksMap[firstPosition]
+                val secondBlock = blocksMap[secondPosition]
+                if (firstBlock == null || secondBlock == null) {
+                    Napier.e(
+                        "animateRocket: missing block at " +
+                            "${if (firstBlock == null) firstPosition.log() else secondPosition.log()}; aborting swap",
+                    )
+                    stopAnimating()
+                    return@launchGameAnimation
+                }
                 Napier.d("Rocketing: swapping ${firstPosition.log()} and ${secondPosition.log()}")
                 animate {
                     parallel {
@@ -485,7 +541,7 @@ fun Stage.animateRocket(selection: RocketSelection) =
 // `mirror` flips the shake direction so the bomb and rocket wobble symmetrically
 // inward/outward rather than in lockstep.
 fun Stage.jigglePowerUp(container: Container, mirror: Boolean = false) =
-    launchImmediately {
+    launchGameAnimation("powerup-jiggle") {
         val baseX = container.x
         val dir = if (mirror) -1.0 else 1.0
         animate {
@@ -511,12 +567,12 @@ fun Stage.checkIdleHint() {
 fun Stage.animateSelectedBlock(
     maybeBlock: Block?,
     selected: Boolean,
-) = launchImmediately {
+) = launchGameAnimation("block-select") {
     if (maybeBlock == null)
         {
             Napier.e("Empty block passed into animateSelectedBlock")
         } else {
-        val block = maybeBlock!!
+        val block = maybeBlock
         animate {
             val x = block.x
             val y = block.y

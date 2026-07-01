@@ -209,11 +209,12 @@ fun determineMerge(positionList: MutableList<Position>): MutableMap<Position, Pa
             nextRank = blocksMap[positionList.first()]?.number?.next() ?: Rank.ZERO
 
             if (uniqueX.size == 3 && uniqueY.size == 3) {
-                // A full 3x3 collapses into a single block at the centre, four tiers
-                // above the selection (the rest of the rectangle family produces a line).
-                val centerPos = Position(uniqueX.sorted()[1], uniqueY.sorted()[1])
-                val sources = positionList.filter { it != centerPos }
-                mergeMap[centerPos] = Pair(nextRank.next().next().next(), sources)
+                // A full 3x3 collapses into a single block four tiers above the
+                // selection (the rest of the rectangle family produces a line). It
+                // spawns on the last tile the player selected, so they can choose
+                // where the upgraded block lands.
+                val sources = positionList.filter { it != last }
+                mergeMap[last] = Pair(nextRank.next().next().next(), sources)
             } else if (uniqueX.size == 4 && uniqueY.size == 4) {
                 // A full 4x4 collapses into a 2x2 at the centre, each cell four tiers
                 // above the selection. Each source flies to its nearest centre cell.

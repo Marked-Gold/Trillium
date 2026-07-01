@@ -82,8 +82,12 @@ private fun textsFor(fills: Array<RGBA>, darkInk: RGBA, lightInk: RGBA): Array<R
  * fill's own luminance rather than the active theme. Used where a label sits on a themed accent
  * fill — e.g. the START button on the mode-switch dialog, whose green is bright in NEON/PASTEL but
  * dark in the DARK theme, so neither a fixed light nor a fixed dark label stays legible everywhere.
+ *
+ * The dark ink is a neutral near-black rather than a green-tinted one: every fill this runs on is
+ * the "copied" green, and a dark *green* ink on the bright NEON copied fill (#1bff9e) reads as the
+ * same hue — legible by luminance but muddy. A neutral near-black keeps "COPIED" crisply distinct.
  */
-fun contrastInkOn(fill: RGBA): RGBA = if (lum(fill) > 0.55) Colors["#14241A"] else Colors["#F2F2F2"]
+fun contrastInkOn(fill: RGBA): RGBA = if (lum(fill) > 0.55) Colors["#0A0A12"] else Colors["#F2F2F2"]
 
 // --- Per-tile fills, ordered by Rank.ordinal --------------------------------
 // Each column keeps every tile inside its emoji's color family (see class doc). The first column

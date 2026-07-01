@@ -116,6 +116,16 @@ fun Stage.handleUp(point: Point)  {
 }
 
 fun Stage.pressDown(maybePosition: Position?) {
+    // Only the first finger down may *start* a chain. On a touchscreen KorGE fires `start`
+    // once per finger, so a second/third finger would otherwise re-enter here and blindly
+    // append its block to hoveredPositions — skipping the adjacency/matching-tier validation
+    // that lives in hoverBlock(). That let players merge arbitrary, non-adjacent blocks by
+    // tapping with multiple fingers. Ignore any touch-down while a selection is already active;
+    // extending a chain must go through the validated drag path (hoverBlock).
+    if (hoveredPositions.isNotEmpty()) {
+        Napier.d("Ignoring additional touch-down while a selection chain is active")
+        return
+    }
     if (maybePosition != null) {
         if (tutorialBlocksPosition(maybePosition)) {
             Napier.d("Tutorial blocked selection at ${maybePosition.log()}")

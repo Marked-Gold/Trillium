@@ -59,20 +59,30 @@ object Sfx {
 
     private fun Sound.fire(volume: Double) {
         if (!enabled) return
-        play(ctx, PlaybackParameters.DEFAULT.copy(volume = volume))
+        // Sound is decoration: a platform audio failure must never escape into the caller (on
+        // iOS these fire from frame-loop animation callbacks, where a throw kills the process).
+        try {
+            play(ctx, PlaybackParameters.DEFAULT.copy(volume = volume))
+        } catch (e: Throwable) {
+            Napier.e("Sfx: failed to play '$name': $e")
+        }
     }
 
     // Plays [this] AudioData at a modified sample rate so it sounds pitched. The samples reference
     // is reused — only the rate field changes — so per-play allocation is cheap.
     private fun AudioData.playPitched(pitch: Double, volume: Double) {
         if (!enabled) return
-        val pitched = AudioData(
-            rate = (rate * pitch).toInt().coerceAtLeast(1),
-            samples = samples,
-            name = "${name}_pitched",
-        )
-        SoundAudioData(ctx, pitched, nativeSoundProvider, "${name}_pitched")
-            .play(ctx, PlaybackParameters.DEFAULT.copy(volume = volume))
+        try {
+            val pitched = AudioData(
+                rate = (rate * pitch).toInt().coerceAtLeast(1),
+                samples = samples,
+                name = "${name}_pitched",
+            )
+            SoundAudioData(ctx, pitched, nativeSoundProvider, "${name}_pitched")
+                .play(ctx, PlaybackParameters.DEFAULT.copy(volume = volume))
+        } catch (e: Throwable) {
+            Napier.e("Sfx: failed to play pitched '$name': $e")
+        }
     }
 
     /** Soft pop on every merge. Two semitones per tier from tier ONE; capped at tier TEN. */
