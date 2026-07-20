@@ -34,7 +34,7 @@ const APP_ADS_TXT =
 const appStoreReady = () => !APP_STORE_URL.includes("<APP_STORE_ID>");
 
 export default {
-  async fetch(request) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
 
@@ -51,9 +51,29 @@ export default {
         ? "android"
         : "other";
 
-    if (platform === "android") return Response.redirect(PLAY_STORE_URL, 302);
-    if (platform === "ios" && appStoreReady())
+    // Fire-and-forget marketing event for store redirects — must never delay
+    // or fail the redirect itself.
+    const trackStoreClick = () =>
+      ctx.waitUntil(
+        fetch("https://marketing.markrgaskin.workers.dev/e", {
+          method: "POST",
+          headers: { "Content-Type": "text/plain", "X-Mkt-Key": "triplo" },
+          body: JSON.stringify({
+            n: "store_click",
+            u: request.url,
+            mk: url.searchParams.get("mk") ?? undefined,
+          }),
+        }).catch(() => {}),
+      );
+
+    if (platform === "android") {
+      trackStoreClick();
+      return Response.redirect(PLAY_STORE_URL, 302);
+    }
+    if (platform === "ios" && appStoreReady()) {
+      trackStoreClick();
       return Response.redirect(APP_STORE_URL, 302);
+    }
 
     // Desktop / unknown, or iOS before the App Store id is known.
     return htmlResponse(landingPage());
@@ -113,6 +133,7 @@ function page(title, inner) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title>
 <style>${STYLE}</style>
+<script async src="https://marketing.markrgaskin.workers.dev/mkt.js?p=triplo"></script>
 </head>
 <body>${inner}</body>
 </html>`;
