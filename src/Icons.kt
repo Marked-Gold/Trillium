@@ -349,6 +349,57 @@ fun Container.gamepadIcon(
         }
     }
 
+/** Save icon — a floppy disk: outlined body with a filled shutter at the top and a label panel at
+ * the bottom. Labels the SAVED GAME row in the pause menu and the SAVE button on that page. */
+fun Container.saveIcon(
+    s: Double,
+    color: RGBA = iconInk,
+): Container =
+    iconBox(s) {
+        graphics {
+            // Disk body.
+            stroke(color, lineWidth = s * 0.09, lineCap = LineCap.ROUND) {
+                roundRect(s * 0.18, s * 0.18, s * 0.64, s * 0.64, s * 0.08, s * 0.08)
+            }
+            fill(color) {
+                // Metal shutter, centred on the top edge.
+                roundRect(s * 0.37, s * 0.18, s * 0.26, s * 0.20, s * 0.03, s * 0.03)
+                // Paper label across the bottom half.
+                roundRect(s * 0.31, s * 0.54, s * 0.38, s * 0.28, s * 0.04, s * 0.04)
+            }
+        }
+    }
+
+/** Load icon — an arrow dropping into an open tray. Shares the arrowhead weight of [gravityIcon];
+ * the tray is what tells the two apart at a glance. Labels the LOAD button on the saved-game page. */
+fun Container.loadIcon(
+    s: Double,
+    color: RGBA = iconInk,
+): Container =
+    iconBox(s) {
+        graphics {
+            // Arrow stem.
+            stroke(color, lineWidth = s * 0.125, lineCap = LineCap.ROUND) {
+                moveTo(s * 0.5, s * 0.12)
+                lineTo(s * 0.5, s * 0.40)
+            }
+            // Arrowhead pointing down into the tray.
+            fill(color) {
+                moveTo(s * 0.5, s * 0.62)
+                lineTo(s * 0.30, s * 0.36)
+                lineTo(s * 0.70, s * 0.36)
+                close()
+            }
+            // Open-topped tray beneath.
+            stroke(color, lineWidth = s * 0.10, lineCap = LineCap.ROUND) {
+                moveTo(s * 0.18, s * 0.64)
+                lineTo(s * 0.18, s * 0.86)
+                lineTo(s * 0.82, s * 0.86)
+                lineTo(s * 0.82, s * 0.64)
+            }
+        }
+    }
+
 /** Share icon — three connected nodes. */
 fun Container.shareIcon(
     s: Double,

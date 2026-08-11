@@ -103,8 +103,11 @@ const val hapticsEnabledKey = "hapticsEnabled"
 const val gravityModeEnabledKey = "gravityModeEnabled"
 const val gravityBestKey = "gravityBest"
 
-/** Above this score, switching game mode warns first (it discards the current run). */
-const val gravityConfirmScoreThreshold = 100
+/**
+ * Above this score the current run counts as worth keeping, so anything that would throw it away —
+ * switching game mode, loading a saved game — asks for confirmation first.
+ */
+const val discardRunConfirmScore = 100
 
 // Debug toggle: when true the player starts every round with a full rack of bombs and
 // detonating one never consumes it — so you can bomb indefinitely to hunt for a crash.
@@ -763,30 +766,23 @@ fun Container.showRestart(isGameOver: Boolean = false, onRestart: () -> Unit) =
 
         fun clearPopup () { this@container.removeFromParent() }
 
-        // Lays out each pause-menu button as [icon] [label]. The icon and label sit at fixed
-        // offsets from the button edge, so they line up into tidy columns across every button.
-        fun layoutButtonContent(label: View, icon: View, within: View) {
-            val pad = fieldWidth * 0.085
-            val gap = fieldWidth * 0.05
-            icon.x = within.x + pad
-            icon.centerYOn(within)
-            label.x = within.x + pad + icon.width + gap
-            label.centerYOn(within)
-        }
-
-        // Pause shows four rows (UNDO / RESTART / SHARE / SETTINGS); game over hides UNDO (the
-        // only state to undo to is the one that just ended the game) and so shows three. Buttons
-        // are sized identically in both contexts; the whole stack is centered vertically in the
-        // popup background, so the 3-row game-over screen still looks balanced.
+        // Pause shows five rows (UNDO / RESTART / SHARE / SAVED GAME / SETTINGS); game over shows
+        // three, dropping UNDO (the only state to undo to is the one that just ended the game) and
+        // SAVED GAME (a finished run is not worth saving, and reloading a save to escape a death is
+        // deliberately not offered). Buttons are sized identically in both contexts; the whole stack
+        // is centered vertically in the popup background, so the 3-row screen still looks balanced.
         val buttonWidth = fieldWidth * 2.0 / 3
         val buttonHeight = fieldHeight * 0.15
         val buttonGap = fieldHeight * 0.035
         val labelSize = 27.0
-        val rowCount = if (isGameOver) 3 else 4
+        val rowCount = if (isGameOver) 3 else 5
         val firstRowTop = (fieldHeight - (rowCount * buttonHeight + (rowCount - 1) * buttonGap)) / 2.0
         fun buttonTopOffset(index: Int) = firstRowTop + index * (buttonHeight + buttonGap)
-        // Without UNDO at row 0, the remaining rows shift up by one on game over.
-        val rowOffset = if (isGameOver) 1 else 0
+        // Row slots per context. Two of the five rows are absent on game over, and they are not
+        // adjacent, so the rows are indexed explicitly rather than by a single shared offset.
+        val restartRow = if (isGameOver) 0 else 1
+        val shareRow = if (isGameOver) 1 else 2
+        val settingsRow = if (isGameOver) 2 else 4
 
         val bgUndoContainer: Container? = if (isGameOver) null else container {
             val canUndo = Undo.canUndo()
@@ -803,7 +799,7 @@ fun Container.showRestart(isGameOver: Boolean = false, onRestart: () -> Unit) =
                 }
             }
             val icon = undoIcon(fieldWidth * 0.13, pauseScreenTextColor)
-            layoutButtonContent(label, icon, textContainer)
+            layoutMenuButtonContent(label, icon, textContainer)
             // Dim the whole button when there is nothing to undo, matching the haptics/sfx
             // "off" treatment so the disabled state reads at a glance without separate art.
             if (!canUndo) alpha = 0.35
@@ -826,7 +822,7 @@ fun Container.showRestart(isGameOver: Boolean = false, onRestart: () -> Unit) =
             container {
                 val textContainer = roundRect(Size(buttonWidth, buttonHeight), RectCorners(25), fill = pauseScreenBlockColor) {
                     centerXOn(restartBackground)
-                    alignTopToTopOf(restartBackground, buttonTopOffset(1 - rowOffset))
+                    alignTopToTopOf(restartBackground, buttonTopOffset(restartRow))
                 }
                 val label = text("RESTART", labelSize, pauseScreenTextColor, font) {
                     onOver { color = pauseScreenTextHoverColor }
@@ -835,7 +831,7 @@ fun Container.showRestart(isGameOver: Boolean = false, onRestart: () -> Unit) =
                     onUp { color = pauseScreenTextDownColor }
                 }
                 val icon = restartIcon(fieldWidth * 0.13, pauseScreenTextColor)
-                layoutButtonContent(label, icon, textContainer)
+                layoutMenuButtonContent(label, icon, textContainer)
                 onUp {
                     Napier.d("Restart Button - YES Clicked")
                     showingRestart = false
@@ -853,7 +849,7 @@ fun Container.showRestart(isGameOver: Boolean = false, onRestart: () -> Unit) =
             container {
                 val textContainer = roundRect(Size(buttonWidth, buttonHeight), RectCorners(25), fill = pauseScreenBlockColor) {
                     centerXOn(restartBackground)
-                    alignTopToTopOf(restartBackground, buttonTopOffset(2 - rowOffset))
+                    alignTopToTopOf(restartBackground, buttonTopOffset(shareRow))
                 }
                 // While the COPIED confirmation flashes, the label wears a high-contrast ink for the
                 // bright copied fill; suppress the hover/press recolors so they don't stomp it.
@@ -865,7 +861,7 @@ fun Container.showRestart(isGameOver: Boolean = false, onRestart: () -> Unit) =
                     onUp { if (!sharing) color = pauseScreenTextDownColor }
                 }
                 val icon = shareIcon(fieldWidth * 0.13, pauseScreenTextColor)
-                layoutButtonContent(label, icon, textContainer)
+                layoutMenuButtonContent(label, icon, textContainer)
                 // Copy the grid, then flash "COPIED" and a brighter button so the tap registers visibly.
                 fun shareAndConfirm() {
                     if (sharing) return
@@ -887,6 +883,40 @@ fun Container.showRestart(isGameOver: Boolean = false, onRestart: () -> Unit) =
                 onClick { shareAndConfirm() }
             }
 
+        // SAVED GAME opens the single-slot save/load page. Pause only: see the row-count comment
+        // above for why it is absent on game over. Hides the pause popup while open, like SETTINGS.
+        if (!isGameOver) {
+            container {
+                val textContainer = roundRect(Size(buttonWidth, buttonHeight), RectCorners(25), fill = pauseScreenBlockColor) {
+                    centerXOn(restartBackground)
+                    alignTopToTopOf(restartBackground, buttonTopOffset(3))
+                }
+                val label = text("SAVED GAME", labelSize, pauseScreenTextColor, font) {
+                    onOver { color = pauseScreenTextHoverColor }
+                    onOut { color = pauseScreenTextColor }
+                    onDown { color = pauseScreenTextDownColor }
+                    onUp { color = pauseScreenTextDownColor }
+                }
+                val icon = saveIcon(fieldWidth * 0.13, pauseScreenTextColor)
+                layoutMenuButtonContent(label, icon, textContainer)
+                onClick {
+                    Napier.d("Saved Game Button Clicked")
+                    val s = stage ?: return@onClick
+                    pausePopup.visible = false
+                    s.showSavedGame(
+                        // Tapping outside the card returns to the pause menu.
+                        onClose = { pausePopup.visible = true },
+                        // Loading tears the whole menu stack down so the restored board is revealed
+                        // (otherwise it renders behind the still-open menu).
+                        onLoaded = {
+                            showingRestart = false
+                            pausePopup.removeFromParent()
+                        },
+                    )
+                }
+            }
+        }
+
         // SETTINGS opens the secondary page that holds GUIDE, AD PERMISSIONS and the
         // HAPTICS/SOUND toggles. The pause popup itself is left attached but hidden behind
         // settings, so closing settings restores it without rebuilding any state.
@@ -894,7 +924,7 @@ fun Container.showRestart(isGameOver: Boolean = false, onRestart: () -> Unit) =
             container {
                 val textContainer = roundRect(Size(buttonWidth, buttonHeight), RectCorners(25), fill = pauseScreenBlockColor) {
                     centerXOn(restartBackground)
-                    alignTopToTopOf(restartBackground, buttonTopOffset(3 - rowOffset))
+                    alignTopToTopOf(restartBackground, buttonTopOffset(settingsRow))
                 }
                 val label = text("SETTINGS", labelSize, pauseScreenTextColor, font) {
                     onOver { color = pauseScreenTextHoverColor }
@@ -903,7 +933,7 @@ fun Container.showRestart(isGameOver: Boolean = false, onRestart: () -> Unit) =
                     onUp { color = pauseScreenTextDownColor }
                 }
                 val icon = settingsIcon(fieldWidth * 0.13, pauseScreenTextColor)
-                layoutButtonContent(label, icon, textContainer)
+                layoutMenuButtonContent(label, icon, textContainer)
                 onClick {
                     Napier.d("Settings Button Clicked")
                     val s = stage ?: return@onClick
@@ -940,13 +970,21 @@ fun Container.showRestart(isGameOver: Boolean = false, onRestart: () -> Unit) =
     }
 
 /**
- * Confirmation dialog shown before a game-mode switch discards a run worth keeping. A centered
- * card over a dimmed board: START runs [onConfirm] (which restarts into the new mode); CANCEL or
- * an outside tap dismisses it and leaves the current run untouched. Styled to match the pause menu
- * (rounded card, pill buttons, faux-bold heading) so it reads as part of the game, not a system
- * alert.
+ * Confirmation dialog shown before an action throws away something the player might want to keep —
+ * a game-mode switch or a saved-game load discarding the current run, a save overwriting the
+ * previous one. A centered card over a dimmed board: the confirm button runs [onConfirm]; CANCEL or
+ * an outside tap dismisses it and changes nothing. Styled to match the pause menu (rounded card,
+ * pill buttons, faux-bold heading) so it reads as part of the game, not a system alert.
+ *
+ * [messageLines] is a list because the card is only ~fieldWidth wide: anything longer than a short
+ * clause has to be broken by the caller rather than wrapped.
  */
-fun Container.showGravityConfirm(turningOn: Boolean, onConfirm: () -> Unit) =
+fun Container.showConfirmDialog(
+    title: String,
+    messageLines: List<String>,
+    confirmLabel: String,
+    onConfirm: () -> Unit,
+) =
     container {
         val dialog = this
 
@@ -977,11 +1015,9 @@ fun Container.showGravityConfirm(turningOn: Boolean, onConfirm: () -> Unit) =
 
         // Title — faux-bold via the same double-stamp trick the GAME OVER heading uses, since
         // clear_sans.fnt is single-weight.
-        val modeName = if (turningOn) "Gravity" else "Classic"
-        val titleText = "Start a new $modeName game?"
         container {
             for (offset in listOf(0.0, 1.0)) {
-                text(titleText, 24.0, pauseScreenTextColor, font) {
+                text(title, 24.0, pauseScreenTextColor, font) {
                     setTextBounds(Rectangle(0.0, 0.0, cardW, 34.0))
                     alignment = TextAlignment.MIDDLE_CENTER
                     x = offset
@@ -993,12 +1029,16 @@ fun Container.showGravityConfirm(turningOn: Boolean, onConfirm: () -> Unit) =
 
         // Subtitle — secondary warning. Uses the readable chrome text color (the muted "pressed"
         // color was too low-contrast on the card in the lighter themes); the smaller, non-bold
-        // weight is enough to keep it subordinate to the title.
-        text("Your current game will be lost", 19.0, pauseScreenTextColor, font) {
-            setTextBounds(Rectangle(0.0, 0.0, cardW, 26.0))
-            alignment = TextAlignment.MIDDLE_CENTER
-            centerXOn(card)
-            alignTopToTopOf(card, cardH * 0.44)
+        // weight is enough to keep it subordinate to the title. A single line sits where it always
+        // has; a second line lifts the pair so both still clear the buttons below.
+        val messageTop = if (messageLines.size > 1) 0.38 else 0.44
+        messageLines.forEachIndexed { index, line ->
+            text(line, 19.0, pauseScreenTextColor, font) {
+                setTextBounds(Rectangle(0.0, 0.0, cardW, 26.0))
+                alignment = TextAlignment.MIDDLE_CENTER
+                centerXOn(card)
+                alignTopToTopOf(card, cardH * (messageTop + index * 0.13))
+            }
         }
 
         val btnW = cardW * 0.42
@@ -1034,11 +1074,20 @@ fun Container.showGravityConfirm(turningOn: Boolean, onConfirm: () -> Unit) =
         pillButton("CANCEL", fill = pauseScreenBlockColor, labelColor = null, alignLeft = true) {
             dialog.removeFromParent()
         }
-        pillButton("START", fill = pauseScreenBlockCopiedColor, labelColor = contrastInkOn(pauseScreenBlockCopiedColor), alignLeft = false) {
+        pillButton(confirmLabel, fill = pauseScreenBlockCopiedColor, labelColor = contrastInkOn(pauseScreenBlockCopiedColor), alignLeft = false) {
             dialog.removeFromParent()
             onConfirm()
         }
     }
+
+/** Game-mode switch warning: the new mode deals a fresh board, so the current run is discarded. */
+fun Container.showGravityConfirm(turningOn: Boolean, onConfirm: () -> Unit) =
+    showConfirmDialog(
+        title = "Start a new ${if (turningOn) "Gravity" else "Classic"} game?",
+        messageLines = listOf("Your current game will be lost"),
+        confirmLabel = "START",
+        onConfirm = onConfirm,
+    )
 
 /**
  * Settings sub-page reached from the SETTINGS button in the pause menu. Holds GUIDE, the GRAVITY
@@ -1081,24 +1130,6 @@ fun Container.showSettings(
                 onClick { dismiss() }
             }
 
-        fun layoutButtonContent(label: View, icon: View, within: View) {
-            val pad = fieldWidth * 0.085
-            val gap = fieldWidth * 0.05
-            icon.x = within.x + pad
-            icon.centerYOn(within)
-            val labelLeft = within.x + pad + icon.width + gap
-            // Shrink a label that would overrun the pill (the "GAME MODE: …" rows are the widest),
-            // keeping a symmetric right margin. Scaling around the top-left anchor keeps labelLeft fixed.
-            val available = within.width - (labelLeft - within.x) - pad
-            if (label.width > available) {
-                val k = available / label.width
-                label.scaleX = k
-                label.scaleY = k
-            }
-            label.x = labelLeft
-            label.centerYOn(within)
-        }
-
         // Five rows max (GUIDE / GRAVITY / THEMES / AD PERMISSIONS / HAPTICS+SFX). AD PERMISSIONS is
         // omitted when the user is outside any jurisdiction that requires a "manage consent"
         // affordance — in that case the row collapses out and HAPTICS+SFX moves up into its slot.
@@ -1124,7 +1155,7 @@ fun Container.showSettings(
                 onUp { color = pauseScreenTextDownColor }
             }
             val icon = helpIcon(fieldWidth * 0.13, pauseScreenTextColor)
-            layoutButtonContent(label, icon, textContainer)
+            layoutMenuButtonContent(label, icon, textContainer)
             onClick {
                 Napier.d("How To Play Button Clicked (from settings)")
                 settingsPopup.visible = false
@@ -1146,7 +1177,7 @@ fun Container.showSettings(
                 onUp { color = pauseScreenTextDownColor }
             }
             val icon = gamepadIcon(fieldWidth * 0.13, pauseScreenTextColor)
-            layoutButtonContent(label, icon, textContainer)
+            layoutMenuButtonContent(label, icon, textContainer)
             onClick {
                 Napier.d("Game Mode Button Clicked (from settings)")
                 settingsPopup.visible = false
@@ -1180,7 +1211,7 @@ fun Container.showSettings(
                 onUp { color = pauseScreenTextDownColor }
             }
             val icon = colorWheelIcon(fieldWidth * 0.13)
-            layoutButtonContent(label, icon, textContainer)
+            layoutMenuButtonContent(label, icon, textContainer)
             onClick {
                 Napier.d("Themes Button Clicked (from settings)")
                 settingsPopup.visible = false
@@ -1215,7 +1246,7 @@ fun Container.showSettings(
                     onUp { color = pauseScreenTextDownColor }
                 }
                 val icon = shieldIcon(fieldWidth * 0.13, pauseScreenTextColor)
-                layoutButtonContent(label, icon, textContainer)
+                layoutMenuButtonContent(label, icon, textContainer)
                 onClick {
                     Napier.d("Ad Permissions Button Clicked")
                     adsPresentPrivacyOptions { /* form-modal returns control on its own */ }
@@ -1457,7 +1488,7 @@ fun Stage.showGameModes(
             }
             // Warn before discarding a run with real progress — but not on the game-over screen,
             // where there is nothing left to lose.
-            if (!fromGameOver && score.value > gravityConfirmScoreThreshold) {
+            if (!fromGameOver && score.value > discardRunConfirmScore) {
                 stageRef.showGravityConfirm(enableGravity) { applyMode(enableGravity) }
             } else {
                 applyMode(enableGravity)
@@ -1517,6 +1548,232 @@ fun Stage.showGameModes(
             }
         }
     }
+
+/**
+ * Save / load page, reached from the SAVED GAME row in the pause menu. Mirrors the theme and
+ * game-mode pickers' full-board backdrop (taps outside the card return to the pause menu beneath).
+ *
+ * There is a single save slot, so the page leads with what is in it, then offers SAVE (warning first
+ * when it would replace an existing save) and LOAD (dimmed while the slot is empty, and warning
+ * first when it would discard a run worth keeping). Loading plays an interstitial before the board
+ * is swapped in, matching the restart flow.
+ */
+fun Stage.showSavedGame(
+    onClose: () -> Unit,
+    onLoaded: () -> Unit,
+) =
+    container {
+        val stageRef = this@showSavedGame
+        // Held so the nested buttons (whose own `container {}` shadows this receiver) can still
+        // address the popup itself.
+        val savedPopup = this
+        Napier.d("Showing Saved Game Container...")
+
+        // Re-read from storage after each save so the status line and the LOAD button always
+        // describe what would actually load, not what we think we wrote.
+        var saved = SaveGame.peek(stageRef.views)
+
+        fun dismiss() {
+            savedPopup.removeFromParent()
+            onClose()
+        }
+
+        // Full-screen tap catcher behind the card: a tap outside the card returns to the pause menu.
+        solidRect(4000.0, 4000.0, RGBA(0, 0, 0, 0)) {
+            centerXOn(gameField)
+            centerYOn(gameField)
+            onClick { dismiss() }
+        }
+
+        val card =
+            roundRect(Size(fieldWidth, fieldHeight), RectCorners(5), fill = grayedGameFieldColor) {
+                centerXOn(gameField)
+                centerYOn(gameField)
+                onClick { dismiss() }
+            }
+
+        text("SAVED GAME", 24.0, pauseScreenTextColor, font) {
+            centerXOn(card)
+            alignTopToTopOf(card, fieldHeight * 0.07)
+        }
+
+        // What is in the slot. Fixed text bounds the width of the card keep both lines centered as
+        // their content changes after a save.
+        val slotText = text("", 19.0, pauseScreenTextColor, font) {
+            setTextBounds(Rectangle(0.0, 0.0, fieldWidth.toDouble(), 26.0))
+            alignment = TextAlignment.MIDDLE_CENTER
+            centerXOn(card)
+            alignTopToTopOf(card, fieldHeight * 0.17)
+        }
+        val slotModeText = text("", 15.0, pauseScreenTextColor, font) {
+            setTextBounds(Rectangle(0.0, 0.0, fieldWidth.toDouble(), 22.0))
+            alignment = TextAlignment.MIDDLE_CENTER
+            centerXOn(card)
+            alignTopToTopOf(card, fieldHeight * 0.25)
+        }
+
+        val buttonWidth = fieldWidth * 2.0 / 3
+        val buttonHeight = fieldHeight * 0.15
+        val labelSize = 27.0
+
+        val saveButton = container { }
+        val loadButton = container { }
+
+        fun refreshSlotState() {
+            val snapshot = saved
+            slotText.text = if (snapshot == null) "No saved game yet" else "Score ${snapshot.score}"
+            slotModeText.text =
+                when {
+                    snapshot == null -> "Save your run to come back to it"
+                    snapshot.gravity -> "Gravity mode"
+                    else -> "Classic mode"
+                }
+            // Nothing to load until something is saved — dimmed the same way the UNDO button is
+            // when there is no history.
+            loadButton.alpha = if (snapshot == null) 0.35 else 1.0
+        }
+
+        // SAVE — captures the run in progress, replacing any previous save.
+        var saveFlashing = false
+        saveButton.apply {
+            val textContainer = roundRect(Size(buttonWidth, buttonHeight), RectCorners(25), fill = pauseScreenBlockColor) {
+                centerXOn(card)
+                alignTopToTopOf(card, fieldHeight * 0.38)
+            }
+            val label = text("SAVE", labelSize, pauseScreenTextColor, font) {
+                onOver { if (!saveFlashing) color = pauseScreenTextHoverColor }
+                onOut { if (!saveFlashing) color = pauseScreenTextColor }
+                onDown { if (!saveFlashing) color = pauseScreenTextDownColor }
+                onUp { if (!saveFlashing) color = pauseScreenTextDownColor }
+            }
+            val icon = saveIcon(fieldWidth * 0.13, pauseScreenTextColor)
+            layoutMenuButtonContent(label, icon, textContainer)
+
+            // Write the slot, then flash SAVED on the button — the same confirmation the SHARE
+            // button uses for COPIED, so a successful save is unmistakable.
+            fun saveAndConfirm() {
+                SaveGame.write(stageRef.views)
+                saved = SaveGame.peek(stageRef.views)
+                refreshSlotState()
+                Haptics.success()
+                saveFlashing = true
+                label.text = "SAVED"
+                label.color = contrastInkOn(pauseScreenBlockCopiedColor)
+                textContainer.fill = pauseScreenBlockCopiedColor
+                stageRef.views.launchImmediately {
+                    delay(1200L)
+                    label.text = "SAVE"
+                    label.color = pauseScreenTextColor
+                    textContainer.fill = pauseScreenBlockColor
+                    saveFlashing = false
+                }
+            }
+
+            onClick {
+                if (saveFlashing) return@onClick
+                // A snapshot taken mid-merge would capture a half-settled board. The window is a
+                // fraction of a second and this button is two taps deep, so it is only ever hit by
+                // pausing during an animation — ignore the tap rather than save a broken board.
+                if (isAnimating) {
+                    Napier.d("SAVE tapped while the board was animating - ignored")
+                    return@onClick
+                }
+                val existing = saved
+                if (existing == null) {
+                    saveAndConfirm()
+                    return@onClick
+                }
+                stageRef.showConfirmDialog(
+                    title = "Overwrite saved game?",
+                    messageLines = listOf("Your saved game (score ${existing.score})", "will be replaced"),
+                    confirmLabel = "SAVE",
+                ) { saveAndConfirm() }
+            }
+        }
+
+        // LOAD — puts the saved run back on the board, discarding whatever is being played.
+        loadButton.apply {
+            val textContainer = roundRect(Size(buttonWidth, buttonHeight), RectCorners(25), fill = pauseScreenBlockColor) {
+                centerXOn(card)
+                alignTopToTopOf(card, fieldHeight * 0.58)
+            }
+            val label = text("LOAD", labelSize, pauseScreenTextColor, font) {
+                onOver { if (saved != null) color = pauseScreenTextHoverColor }
+                onOut { if (saved != null) color = pauseScreenTextColor }
+                onDown { if (saved != null) color = pauseScreenTextDownColor }
+                onUp { if (saved != null) color = pauseScreenTextDownColor }
+            }
+            val icon = loadIcon(fieldWidth * 0.13, pauseScreenTextColor)
+            layoutMenuButtonContent(label, icon, textContainer)
+
+            fun performLoad(snapshot: SaveGame.Snapshot) {
+                Haptics.tap()
+                // Tear down this page and the pause menu beneath it before the board is swapped in,
+                // so the restored board is not left rendering behind an open menu.
+                savedPopup.removeFromParent()
+                onLoaded()
+                stageRef.unselectAllPowerUps()
+                // Interstitial first, then the board swap — the same order the restart flow uses.
+                stageRef.launchGameAnimation("load-save") {
+                    Ads.showInterstitial()
+                    stageRef.loadSavedGame(snapshot)
+                }
+            }
+
+            onClick {
+                val snapshot = saved
+                if (snapshot == null) {
+                    Napier.d("LOAD tapped with an empty save slot - ignored")
+                    return@onClick
+                }
+                // Warn before throwing away a run with real progress, matching the game-mode switch.
+                if (score.value > discardRunConfirmScore) {
+                    stageRef.showConfirmDialog(
+                        title = "Load saved game?",
+                        messageLines = listOf("Your current game (score ${score.value})", "will be lost"),
+                        confirmLabel = "LOAD",
+                    ) { performLoad(snapshot) }
+                } else {
+                    performLoad(snapshot)
+                }
+            }
+        }
+
+        text("Only one game is saved at a time", 14.0, pauseScreenTextColor, font) {
+            setTextBounds(Rectangle(0.0, 0.0, fieldWidth.toDouble(), 20.0))
+            alignment = TextAlignment.MIDDLE_CENTER
+            centerXOn(card)
+            alignTopToTopOf(card, fieldHeight * 0.82)
+        }
+
+        refreshSlotState()
+    }
+
+/**
+ * Lays out a menu button as [icon] [label], at fixed offsets from the button edge so the icons and
+ * labels line up into tidy columns down a page. A label wider than the pill (the "AD PERMISSIONS" /
+ * "SAVED GAME" rows) is scaled down to fit, keeping a symmetric right margin; scaling around the
+ * top-left anchor keeps the label's left edge on the shared column.
+ */
+fun layoutMenuButtonContent(
+    label: View,
+    icon: View,
+    within: View,
+) {
+    val pad = fieldWidth * 0.085
+    val gap = fieldWidth * 0.05
+    icon.x = within.x + pad
+    icon.centerYOn(within)
+    val labelLeft = within.x + pad + icon.width + gap
+    val available = within.width - (labelLeft - within.x) - pad
+    if (label.width > available) {
+        val k = available / label.width
+        label.scaleX = k
+        label.scaleY = k
+    }
+    label.x = labelLeft
+    label.centerYOn(within)
+}
 
 /**
  * Recolors every block for the active theme by recreating each block view (its init samples the

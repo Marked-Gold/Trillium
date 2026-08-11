@@ -48,7 +48,8 @@ KorGE 6 uses a flat source layout:
 
 ## Ads
 
-Interstitial ads are shown when a round ends and when the player restarts from the pause menu.
+Interstitial ads are shown when a round ends, when the player restarts from the pause menu, and when
+a saved game is loaded.
 Common code talks to the platform-agnostic `Ads` facade (`src/Ads.kt`); each platform provides an
 `installPlatformAds()` implementation.
 

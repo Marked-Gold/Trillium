@@ -540,9 +540,15 @@ private fun rebaseVeins() {
 }
 
 // Restores the gradient to its opening state (gray -> green) for a new game.
-fun resetBackgroundGradient() {
-    gradBotTier = Rank.THREE
-    gradBotColor = Rank.THREE.color
+fun resetBackgroundGradient() = setBackgroundGradientTier(Rank.THREE)
+
+// Snaps the gradient straight to [tier] with no pulse, dropping any pulse still in flight so it
+// cannot commit the old tier on top afterwards. Used for a new game (the opening tier) and when a
+// saved game is loaded, where the restored board can already carry high-tier blocks and the glow
+// should jump to the progress that run had earned.
+fun setBackgroundGradientTier(tier: Rank) {
+    gradBotTier = tier
+    gradBotColor = tier.color
     pulseActive = false
     pulseChangesGrad = false
     pulseGradFrom = gradBotColor
