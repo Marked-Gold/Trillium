@@ -44,7 +44,7 @@ if (useTestAdIds) {
 korge {
     id = "com.allmeatgames.triplo"
     name = "Triplo"
-    version = "1.2.0"
+    version = "1.2.1"
 
     orientation = Orientation.PORTRAIT
 
@@ -108,8 +108,8 @@ dependencies {
 // could not find the App Tracking Transparency prompt — it was being requested while the app was
 // not yet active, so iOS silently dropped it. Fixed in TriploAds.m by deferring the ATT request
 // to the active state. Bump on every new upload.
-val iosShortVersion = "1.2.0"
-val iosBuildNumber = "8"
+val iosShortVersion = "1.2.1"
+val iosBuildNumber = "9"
 val googleMobileAdsSpmUrl = "https://github.com/googleads/swift-package-manager-google-mobile-ads.git"
 val googleMobileAdsSpmVersion = "13.4.0"
 val googleUmpSpmUrl = "https://github.com/googleads/swift-package-manager-google-user-messaging-platform.git"
@@ -446,7 +446,7 @@ pluginManager.withPlugin("com.android.application") {
 // production) must use a strictly higher versionCode than the last, so bump this on each
 // release. KorGE sets versionName from korge.version above but leaves versionCode alone; the
 // AGP variant API sets it here, which binds late enough to be authoritative.
-val androidVersionCode = 10
+val androidVersionCode = 11
 
 pluginManager.withPlugin("com.android.application") {
     extensions.getByType(ApplicationAndroidComponentsExtension::class.java)

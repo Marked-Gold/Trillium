@@ -87,16 +87,30 @@ signed into Xcode with the AllMeat Games Apple ID. There is **no Apple *Distribu
 in the keychain — only Development certs — because distribution signing is created on the fly by
 Xcode's **Distribute App** flow. So: build the archive via CLI, distribute via the Organizer GUI.
 
+> ### ⚠️ `xcodebuild` does NOT compile Kotlin. Build the framework first, or you ship stale code.
+>
+> The generated Xcode project has only two shell phases (`Verify TriploAds linked`, `Bundle GameMain
+> dSYM into archive`) — **neither invokes gradle**. `xcodebuild archive` just embeds whatever
+> `GameMain.framework` is already lying around, so without the link step below the archive carries
+> the Kotlin code from whenever the framework was last built, stamped with the new version number.
+> It builds, signs, uploads and installs cleanly — the only symptom is that none of your changes are
+> in the app. This silently shipped identical game code as 1.1.0, 1.1.1 and 1.2.0-build8; always run
+> the verification at the end of this section before distributing.
+
 ```bash
 export JAVA_HOME=/opt/homebrew/opt/openjdk@21
-export PATH="$JAVA_HOME/bin:$PATH"          # the Xcode build phase shells out to ./gradlew
+export PATH="$JAVA_HOME/bin:$PATH"
 
-# Regenerate + patch the Xcode project so the new version lands in Info.plist
+# 1. REQUIRED: compile the release Kotlin/Native framework (slow, ~several min). Nothing in the
+#    Xcode build does this for you.
+./gradlew linkReleaseFrameworkIosArm64
+
+# 2. Regenerate + patch the Xcode project so the new version lands in Info.plist
 ./gradlew prepareKotlinNativeIosProject
 /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/platforms/ios/app/Info.plist
 /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion'            build/platforms/ios/app/Info.plist   # sanity-check
 
-# Archive the App Store target (slow: release Kotlin/Native arm64 compile)
+# 3. Archive the App Store target
 xcodebuild archive \
   -project build/platforms/ios/app.xcodeproj \
   -scheme app-Arm64-Release -configuration Release \
@@ -104,6 +118,22 @@ xcodebuild archive \
   -archivePath build/ios-archive/Triplo-<version>.xcarchive \
   -allowProvisioningUpdates CODE_SIGN_STYLE=Automatic
 ```
+
+**Verify the archive actually contains this release's code — before opening the Organizer.** Pick a
+string literal added or changed in this release and look for it in the archived framework. Kotlin/
+Native stores literals as **UTF-16**, so `strings`/`grep` find nothing and prove nothing:
+
+```bash
+python3 - <<'EOF'
+NEEDLE = "SAVED GAME"   # <- a literal unique to this release
+p = "build/ios-archive/Triplo-<version>.xcarchive/Products/Applications/Triplo.app/Frameworks/GameMain.framework/GameMain"
+print("FOUND" if NEEDLE.encode("utf-16-le") in open(p, "rb").read() else "STALE FRAMEWORK - DO NOT UPLOAD")
+EOF
+```
+
+A matching dSYM UUID does **not** prove freshness — a stale framework and its stale dSYM match each
+other perfectly. Comparing the framework's byte size against the previous release's is a good smell
+test: identical size across two releases means nothing was recompiled.
 
 `app-Arm64-Release` is the only target with the App Store patches (bundle id pinned to
 `com.allmeatgames.triplo`, `STRIP_STYLE=non-global` so `_OBJC_CLASS_$_TriploAds` survives strip,
